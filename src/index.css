@@ -240,7 +240,7 @@ h1, h2, h3 { font-family: "Yu Mincho", "Hiragino Mincho ProN", serif; letter-spa
 .field-grid label svg { width: 16px; color: var(--green-2); }
 .field-grid b { padding: 2px 6px; background: #f4e3df; color: var(--red); font-size: 9px; }
 .field-grid i { color: var(--muted); font-size: 10px; font-style: normal; }
-.field-grid input, .field-grid textarea, .lookup-form input, .phone-form input, .phone-form select { width: 100%; min-height: 48px; padding: 12px 14px; border: 1px solid #bcb9ae; border-radius: 0; background: white; }
+.field-grid input, .field-grid textarea, .lookup-form input, .phone-form input, .phone-form select, .phone-form textarea, .cancel-slot-form select, .cancel-slot-form textarea { width: 100%; min-height: 48px; padding: 12px 14px; border: 1px solid #bcb9ae; border-radius: 0; background: white; }
 .field-grid textarea { resize: vertical; }
 .field-grid label > small { display: block; margin-top: 6px; color: var(--muted); font-size: 10px; }
 .field-wide { grid-column: 1 / -1; }
@@ -407,16 +407,16 @@ button.metric-card { width: 100%; cursor: pointer; }
 .management-actions--primary { padding-right: 10px; border-right: 1px solid var(--line); }
 .delete-slot-button { color: #9d3f39; }
 .data-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
-.data-cards > article { padding: 22px; border: 1px solid var(--line); border-radius: 12px; background: white; box-shadow: 0 8px 24px rgb(38 68 96 / 5%); }
-.data-cards article > header { display: flex; justify-content: space-between; align-items: center; }
-.data-cards article > header > small { color: var(--muted); }
+.data-cards > article { min-width: 0; overflow: hidden; padding: 22px; border: 1px solid var(--line); border-radius: 12px; background: white; box-shadow: 0 8px 24px rgb(38 68 96 / 5%); }
+.data-cards article > header { min-width: 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.data-cards article > header > small { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
 .record-status { padding: 4px 8px; background: #eceae3; color: var(--muted); font-size: 10px; font-weight: 800; }
 .record-status--confirmed, .record-status--waiting { background: #e4ece3; color: var(--green); }
 .record-status--slotCanceled, .record-status--canceledByGuest { background: #f1e4df; color: #9a413b; }
 .record-status--promoted { background: #e5ebef; color: #4b647e; }
 .data-cards h3 { margin: 18px 0 5px; font-size: 21px; }
 .data-cards h3 > span { float: right; font: 700 14px sans-serif; }
-.data-cards article > p { color: var(--muted); font-size: 11px; }
+.data-cards article > p { min-width: 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .data-cards dl { margin: 16px 0 0; }
 .data-cards dl > div { padding: 7px 0; display: grid; grid-template-columns: 85px 1fr; border-top: 1px solid #ece9e0; }
 .data-cards dt { color: var(--muted); font-size: 10px; }
@@ -500,11 +500,52 @@ button.metric-card { width: 100%; cursor: pointer; }
 .slot-editor-complete .modal-actions { justify-content: center; }
 .phone-form { padding: 24px; }
 .phone-form > label { display: block; margin-top: 20px; }
-.phone-party { margin-top: 20px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.phone-party input { text-align: center; }
+.phone-booking-modal { width: min(520px, 100%); }
+.phone-demo-note { margin: 0 0 18px; padding: 9px 11px; display: flex; align-items: center; gap: 8px; border-left: 3px solid #e6a23c; background: #fff9e8; color: #684f1d !important; font-size: 10px !important; line-height: 1.55; }
+.phone-demo-note svg { width: 17px; flex: 0 0 17px; }
+.phone-party { margin: 20px 0 0; padding: 0; border: 0; }
+.phone-party legend { margin-bottom: 8px; font-size: 13px; font-weight: 800; }
+.phone-party-row { min-height: 52px; display: grid; grid-template-columns: minmax(80px, 1fr) 44px 38px 44px; align-items: center; border-top: 1px solid #e4e7e9; }
+.phone-party-row:last-child { border-bottom: 1px solid #e4e7e9; }
+.phone-party-row > span { font-size: 13px; font-weight: 700; }
+.phone-party-row button { width: 38px; height: 38px; justify-self: center; border: 1px solid #bcc7d0; background: white; color: #173a59; font-size: 20px; cursor: pointer; }
+.phone-party-row button:disabled { opacity: .35; cursor: not-allowed; }
+.phone-party-row strong { text-align: center; font-size: 16px; }
+.phone-party-total { min-height: 48px; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 14px; }
+.phone-party-total span { font-size: 13px; font-weight: 800; }
+.phone-party-total strong { font-size: 18px; }
+.phone-party-total small { color: var(--muted); font-size: 10px; }
+.phone-contact-grid { margin-top: 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.phone-contact-grid label > span, .cancel-slot-form label > span { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; font-size: 13px; font-weight: 800; }
+.phone-contact-grid label > span small, .cancel-slot-form label > span small { color: var(--muted); font-size: 9px; }
+.phone-contact-grid textarea, .cancel-slot-form textarea { resize: vertical; line-height: 1.6; }
 .phone-form > p { color: var(--muted); font-size: 12px; }
-.phone-form .checkbox-row { display: flex; align-items: center; gap: 8px; font-weight: 400; }
-.phone-form .checkbox-row input { width: 20px; min-height: 20px; }
+.phone-only-row { margin-top: 16px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; border: 1px solid #d8dde1; background: #f7f9fa; cursor: pointer; }
+.phone-form > .phone-only-row { margin-top: 16px; display: flex; }
+.phone-only-row input { width: 19px !important; min-height: 19px !important; flex: 0 0 19px; accent-color: #315f86; }
+.phone-only-row span, .phone-only-row strong, .phone-only-row small { display: block; }
+.phone-only-row strong { font-size: 12px; }
+.phone-only-row small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+.phone-optional { margin-top: 12px; border: 1px solid #d8dde1; background: white; }
+.phone-optional summary { padding: 12px 14px; color: #315f86; font-size: 11px; font-weight: 800; cursor: pointer; }
+.phone-optional > div { padding: 0 14px 14px; display: grid; gap: 12px; }
+.phone-optional label > span { display: flex; gap: 7px; margin-bottom: 6px; font-size: 11px; font-weight: 800; }
+.phone-optional label small { color: var(--muted); font-size: 9px; }
+.phone-submit { width: 100%; min-height: 52px; margin-top: 18px; border-radius: 5px; font-size: 15px; }
+.cancel-slot-modal { width: min(680px, 100%); }
+.cancel-slot-form { padding: 24px; }
+.cancel-slot-alert { padding: 15px; display: flex; align-items: flex-start; gap: 12px; border: 1px solid #e4b1ad; background: #fff3f1; color: #8f312d; }
+.cancel-slot-alert > svg { width: 24px; flex: 0 0 24px; }
+.cancel-slot-alert strong, .cancel-slot-alert p { display: block; }
+.cancel-slot-alert p { margin: 5px 0 0; color: #76504d; font-size: 11px; line-height: 1.65; }
+.cancel-slot-form > label { display: block; margin-top: 20px; }
+.cancel-impact { margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); background: white; }
+.cancel-impact > div { min-width: 0; padding: 12px 14px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.cancel-impact > div:nth-child(2n) { border-right: 0; }
+.cancel-impact > div:nth-last-child(-n + 2) { border-bottom: 0; }
+.cancel-impact span, .cancel-impact strong { display: block; }
+.cancel-impact span { color: var(--muted); font-size: 9px; }
+.cancel-impact strong { margin-top: 4px; overflow-wrap: anywhere; font-size: 13px; }
 .modal-actions { margin-top: 25px; display: flex; justify-content: flex-end; gap: 8px; }
 .confirm-modal { padding: 26px; }
 .confirm-modal p { margin: 0; color: var(--muted); line-height: 1.8; }
@@ -666,6 +707,10 @@ button.metric-card { width: 100%; cursor: pointer; }
   .admin-page-header .button { width: 100%; min-height: 46px; border-radius: 8px; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .data-cards { grid-template-columns: 1fr; }
+  .data-cards h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .data-cards h3 > span { float: none; flex: 0 0 auto; }
+  .promotion-check { min-width: 0; }
+  .promotion-check span { min-width: 0; overflow-wrap: anywhere; }
   .metric-card { min-height: 108px; padding: 14px; gap: 10px; }
   .metric-card > span { width: 36px; height: 36px; flex: 0 0 36px; }
   .metric-card > span svg { width: 18px; }
@@ -707,6 +752,28 @@ button.metric-card { width: 100%; cursor: pointer; }
   .slot-preview > div { grid-template-columns: 72px minmax(0, 1fr); }
   .slot-preview strong { overflow-wrap: anywhere; }
   .slot-editor-actions .button { min-width: 105px; }
+  .phone-booking-modal, .cancel-slot-modal { width: 100%; max-height: 94vh; border-radius: 16px 16px 0 0; }
+  .phone-booking-modal > header, .cancel-slot-modal > header { min-height: 62px; padding-inline: 18px; }
+  .phone-booking-modal > header h2, .cancel-slot-modal > header h2 { font-size: 20px; }
+  .phone-form, .cancel-slot-form { padding: 18px 16px 22px; }
+  .phone-booking-modal .phone-form { padding-top: 14px; }
+  .phone-booking-modal .phone-form > label { margin-top: 14px; }
+  .phone-booking-modal .phone-demo-note { margin-bottom: 12px; padding-block: 7px; }
+  .phone-booking-modal .phone-party { margin-top: 14px; }
+  .phone-booking-modal .phone-party-row { min-height: 46px; }
+  .phone-booking-modal .phone-party-total { min-height: 42px; }
+  .phone-booking-modal .phone-contact-grid { margin-top: 10px; gap: 9px; }
+  .phone-booking-modal .phone-contact-grid input, .phone-booking-modal .phone-form > label select { min-height: 44px; padding-block: 9px; }
+  .phone-booking-modal .phone-only-row { margin-top: 11px; padding-block: 8px; }
+  .phone-booking-modal .phone-optional { margin-top: 8px; }
+  .phone-booking-modal .phone-optional summary { padding-block: 10px; }
+  .phone-booking-modal .phone-submit { min-height: 48px; margin-top: 11px; }
+  .phone-contact-grid { grid-template-columns: 1fr; }
+  .cancel-impact { grid-template-columns: 1fr; }
+  .cancel-impact > div, .cancel-impact > div:nth-child(2n), .cancel-impact > div:nth-last-child(-n + 2) { border-right: 0; border-bottom: 1px solid var(--line); }
+  .cancel-impact > div:last-child { border-bottom: 0; }
+  .cancel-slot-form .modal-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .cancel-slot-form .modal-actions .button { min-width: 0; padding-inline: 10px; }
   .notification-list article { grid-template-columns: 38px 1fr; }
   .notification-list article > div { min-width: 0; }
   .notification-list small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

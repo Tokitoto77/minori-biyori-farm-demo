@@ -32,6 +32,26 @@ function randomCode(prefix: 'MB' | 'WAIT' = 'MB'): string {
   return `${prefix}-DEMO-${token}`;
 }
 
+function phoneBookingContact(contact: Contact): Contact {
+  const normalized = {
+    name: contact.name.trim(),
+    phone: contact.phone.trim(),
+    email: contact.email.trim().toLowerCase(),
+    note: contact.note?.trim(),
+  };
+  if (!normalized.name || !normalized.phone) throw new Error('代表者名と電話番号を入力してください。');
+  if (normalized.name.length > 40 || normalized.phone.length > 24 || normalized.email.length > 120 || (normalized.note?.length ?? 0) > 200) {
+    throw new Error('代表者情報の文字数が上限を超えています。');
+  }
+  if (normalized.email && (!normalized.email.includes('@') || normalized.email.startsWith('@') || normalized.email.endsWith('@'))) {
+    throw new Error('メールアドレスの形式を確認してください。');
+  }
+  return {
+    ...DEMO_CONTACT,
+    note: normalized.note ? 'デモ入力のため保存していません' : '',
+  };
+}
+
 export class DemoRepository implements PublicRepository, BookingRepository, AdminRepository {
   private notifications = new DemoNotificationProvider();
 
@@ -94,7 +114,7 @@ export class DemoRepository implements PublicRepository, BookingRepository, Admi
       id: `booking-${crypto.randomUUID()}`,
       code: randomCode(),
       slotId: input.slotId,
-      contact: { ...DEMO_CONTACT, note: input.contact.note ? 'デモ入力のため保存していません' : '' },
+      contact: source === 'phone' ? phoneBookingContact(input.contact) : { ...DEMO_CONTACT, note: input.contact.note ? 'デモ入力のため保存していません' : '' },
       party: { ...input.party },
       totalPeople: partyTotal(input.party),
       prices: { ...rawSlot.prices },
@@ -124,15 +144,15 @@ export class DemoRepository implements PublicRepository, BookingRepository, Admi
   }
 
   async lookupBooking(code: string, email: string): Promise<Booking | null> {
-    if (email.trim().toLowerCase() !== DEMO_CONTACT.email) return null;
     const normalizedCode = code.trim().toUpperCase();
-    return readDemoState().bookings.find((booking) => booking.code.toUpperCase() === normalizedCode) ?? null;
+    const normalizedEmail = email.trim().toLowerCase();
+    return readDemoState().bookings.find((booking) => booking.code.toUpperCase() === normalizedCode && booking.contact.email.toLowerCase() === normalizedEmail) ?? null;
   }
 
   async cancelBooking(code: string, email: string): Promise<Booking | null> {
-    if (email.trim().toLowerCase() !== DEMO_CONTACT.email) return null;
     const state = readDemoState();
-    const booking = state.bookings.find((item) => item.code.toUpperCase() === code.trim().toUpperCase());
+    const normalizedEmail = email.trim().toLowerCase();
+    const booking = state.bookings.find((item) => item.code.toUpperCase() === code.trim().toUpperCase() && item.contact.email.toLowerCase() === normalizedEmail);
     if (!booking || booking.status !== 'confirmed') return null;
     const rawSlot = state.slots.find((item) => item.id === booking.slotId);
     if (!rawSlot) return null;
@@ -330,8 +350,17 @@ export class DemoRepository implements PublicRepository, BookingRepository, Admi
   async createPhoneBooking(input: PhoneBookingInput): Promise<Booking> {
     const state = readDemoState();
     const booking = this.createBookingRecord(state, input, 'phone');
+    if (input.sendNotification && !booking.contact.email) {
+      throw new Error('通知プレビューを作成する場合はメールアドレスを入力してください。');
+    }
     if (!input.sendNotification) {
       state.notificationJobs = state.notificationJobs.filter((job) => job.targetId !== booking.id);
+    } else {
+      const notification = state.notificationJobs.find((job) => job.targetId === booking.id);
+      if (notification) {
+        notification.recipientName = booking.contact.name;
+        notification.recipientEmail = booking.contact.email;
+      }
     }
     writeDemoState(state);
     return booking;
