@@ -69,10 +69,11 @@ export class DemoRepository implements PublicRepository, BookingRepository, Admi
     });
   }
 
-  private addNotification(state: DemoState, type: NotificationJob['type'], targetId: string, slot: CalendarSlot): void {
+  private addNotification(state: DemoState, type: NotificationJob['type'], targetId: string, slot: CalendarSlot, context: Record<string, string> = {}): void {
     const notification = this.notifications.createPreview(type, targetId, {
       experience: slot.experience.name,
       date: format(new Date(slot.startAt), 'M月d日(E) H:mm', { locale: ja }),
+      ...context,
     });
     state.notificationJobs.unshift(notification);
   }
@@ -382,23 +383,31 @@ export class DemoRepository implements PublicRepository, BookingRepository, Admi
     return booking;
   }
 
-  async cancelSlot(id: string, reason: string): Promise<Slot> {
+  async cancelSlot(id: string, reason: string, expectedTargetIds: string[]): Promise<Slot> {
     const state = readDemoState();
     const slot = state.slots.find((item) => item.id === id);
     if (!slot) throw new Error('開催枠が見つかりません。');
     if (slot.manualStatus === 'cancelled') throw new Error('この開催枠はすでに開催中止です。');
+    const actualTargetIds = [
+      ...state.bookings.filter((booking) => booking.slotId === id && booking.status === 'confirmed').map((booking) => booking.id),
+      ...state.waitlistEntries.filter((entry) => entry.slotId === id && entry.status === 'waiting').map((entry) => entry.id),
+    ].sort();
+    const reviewedTargetIds = [...expectedTargetIds].sort();
+    if (actualTargetIds.length !== reviewedTargetIds.length || actualTargetIds.some((targetId, index) => targetId !== reviewedTargetIds[index])) {
+      throw new Error('確認後に予約者・待機者が更新されました。対象者をもう一度確認してください。');
+    }
     slot.manualStatus = 'cancelled';
     slot.statusReason = reason || '生育・天候状況により開催を中止しました。';
     const calendarSlot = this.calendarize(state, slot);
     state.bookings.filter((booking) => booking.slotId === id && booking.status === 'confirmed').forEach((booking) => {
       booking.status = 'slotCanceled';
       booking.updatedAt = new Date().toISOString();
-      this.addNotification(state, 'slotCanceled', booking.id, calendarSlot);
+      this.addNotification(state, 'slotCanceled', booking.id, calendarSlot, { reason: slot.statusReason });
     });
     state.waitlistEntries.filter((entry) => entry.slotId === id && entry.status === 'waiting').forEach((entry) => {
       entry.status = 'slotCanceled';
       entry.updatedAt = new Date().toISOString();
-      this.addNotification(state, 'slotCanceled', entry.id, calendarSlot);
+      this.addNotification(state, 'slotCanceled', entry.id, calendarSlot, { reason: slot.statusReason });
     });
     this.addAudit(state, { actor: 'demoAdmin', action: 'SLOT_CANCELED', targetType: 'slot', targetId: slot.id, summary: slot.statusReason });
     writeDemoState(state);

@@ -40,7 +40,7 @@ export interface AdminRepository {
   listNotificationJobs(status?: NotificationJob['status']): Promise<NotificationJob[]>;
   createPhoneBooking(input: PhoneBookingInput): Promise<Booking>;
   promoteWaitlist(id: string): Promise<Booking>;
-  cancelSlot(id: string, reason: string): Promise<Slot>;
+  cancelSlot(id: string, reason: string, expectedTargetIds: string[]): Promise<Slot>;
   listAuditLogs(): Promise<AuditLog[]>;
   processNotifications(): Promise<NotificationJob[]>;
   retryNotification(id: string): Promise<NotificationJob>;

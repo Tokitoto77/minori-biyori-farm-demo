@@ -534,6 +534,11 @@ button.metric-card { width: 100%; cursor: pointer; }
 .phone-submit { width: 100%; min-height: 52px; margin-top: 18px; border-radius: 5px; font-size: 15px; }
 .cancel-slot-modal { width: min(680px, 100%); }
 .cancel-slot-form { padding: 24px; }
+.cancel-flow { margin-bottom: 16px; display: grid; grid-template-columns: repeat(3, 1fr); overflow: hidden; border: 1px solid #d5dfe8; border-radius: 8px; background: #f4f7fa; }
+.cancel-flow span { min-height: 38px; display: grid; place-items: center; position: relative; color: #718091; font-size: 10px; font-weight: 800; }
+.cancel-flow span + span { border-left: 1px solid #d5dfe8; }
+.cancel-flow .is-complete { background: #e6f0e9; color: #286043; }
+.cancel-flow .is-current { background: #e7eff6; color: #244f73; }
 .cancel-slot-alert { padding: 15px; display: flex; align-items: flex-start; gap: 12px; border: 1px solid #e4b1ad; background: #fff3f1; color: #8f312d; }
 .cancel-slot-alert > svg { width: 24px; flex: 0 0 24px; }
 .cancel-slot-alert strong, .cancel-slot-alert p { display: block; }
@@ -546,6 +551,44 @@ button.metric-card { width: 100%; cursor: pointer; }
 .cancel-impact span, .cancel-impact strong { display: block; }
 .cancel-impact span { color: var(--muted); font-size: 9px; }
 .cancel-impact strong { margin-top: 4px; overflow-wrap: anywhere; font-size: 13px; }
+.affected-participants { margin-top: 16px; overflow: hidden; border: 1px solid #ccd6df; border-radius: 9px; background: #fff; }
+.affected-participants > header { min-height: 46px; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #dce3e8; background: #f3f7fa; }
+.affected-participants > header > div { display: flex; align-items: center; gap: 8px; }
+.affected-participants > header svg { width: 18px; color: #315f86; }
+.affected-participants > header strong { font-size: 12px; }
+.affected-participants > header > span { color: #315f86; font-size: 11px; font-weight: 800; }
+.affected-participants ul { max-height: 230px; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.affected-participants li { padding: 12px 14px; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; border-bottom: 1px solid #e7ebee; }
+.affected-participants li:last-child { border-bottom: 0; }
+.participant-kind { align-self: start; padding: 4px 7px; border-radius: 4px; background: #e5eee8; color: #286043; text-align: center; font-size: 9px; font-weight: 800; }
+.affected-participants li > div { min-width: 0; }
+.affected-participants li strong { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; }
+.affected-participants li strong small { color: #315f86; font-size: 10px; }
+.affected-participants li p { margin: 5px 0 0; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.affected-participants li p svg { width: 13px; flex: 0 0 13px; }
+.participant-empty { margin: 0; padding: 18px 14px; color: var(--muted); font-size: 11px; text-align: center; }
+.cancel-message-help { display: block; margin-top: 6px; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.cancel-notification-preview { margin-top: 16px; overflow: hidden; border: 1px solid #b9cad8; border-radius: 9px; background: #f7fafc; }
+.cancel-notification-preview header { padding: 11px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #d8e1e8; background: #eaf1f6; }
+.cancel-notification-preview header > svg { width: 19px; color: #315f86; }
+.cancel-notification-preview header span, .cancel-notification-preview header strong { display: block; }
+.cancel-notification-preview header span { color: #597086; font-size: 9px; }
+.cancel-notification-preview header strong { margin-top: 2px; font-size: 12px; }
+.cancel-notification-preview > p { margin: 0; padding: 13px 14px 6px; color: #26394b; font-size: 11px; line-height: 1.75; white-space: pre-line; }
+.cancel-notification-preview > small { display: block; padding: 0 14px 13px; color: var(--muted); font-size: 9px; }
+.cancel-review-check { margin-top: 16px !important; padding: 12px 14px; display: flex !important; align-items: center; gap: 11px; border: 1px solid #d4b56f; background: #fff9e9; cursor: pointer; }
+.cancel-review-check input { width: 20px; height: 20px; flex: 0 0 20px; accent-color: #315f86; }
+.cancel-review-check > span, .cancel-review-check strong, .cancel-review-check small { display: block; }
+.cancel-review-check strong { font-size: 11px; }
+.cancel-review-check small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.participant-list-modal { width: min(620px, 100%); }
+.participant-list-dialog { padding: 22px 24px 24px; }
+.participant-slot-summary { padding: 14px 16px; border-left: 4px solid #315f86; background: #edf3f7; }
+.participant-slot-summary span, .participant-slot-summary strong, .participant-slot-summary small { display: block; }
+.participant-slot-summary span { color: #315f86; font-size: 10px; font-weight: 800; }
+.participant-slot-summary strong { margin-top: 3px; font-size: 17px; }
+.participant-slot-summary small { margin-top: 4px; color: var(--muted); font-size: 10px; }
+.participant-demo-note { margin: 11px 0 0; color: var(--muted); font-size: 9px; }
 .modal-actions { margin-top: 25px; display: flex; justify-content: flex-end; gap: 8px; }
 .confirm-modal { padding: 26px; }
 .confirm-modal p { margin: 0; color: var(--muted); line-height: 1.8; }
@@ -564,16 +607,20 @@ button.metric-card { width: 100%; cursor: pointer; }
 .admin-topbar-actions { display: flex; align-items: center; gap: 10px; }
 .admin-shell .button--primary:hover:not(:disabled) { background: #244b6c; }
 
+@media (max-width: 1300px) {
+  .management-list article { grid-template-columns: 74px minmax(0, 1fr) auto; }
+  .management-actions { justify-content: flex-end; }
+  .management-actions--primary { grid-column: 2 / 3; border-right: 0; }
+  .management-actions--operations { grid-column: 3; }
+  .management-actions .button { white-space: nowrap; }
+}
+
 @media (max-width: 1050px) {
   .site-header nav button:not(.admin-link), .site-header nav a { display: none; }
   .hero { grid-template-columns: 1.25fr .9fr; }
   .hero__copy { padding-right: 30px; }
   .calendar-layout { grid-template-columns: 1fr 330px; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
-  .management-list article { grid-template-columns: 74px minmax(0, 1fr) auto; }
-  .management-actions { justify-content: flex-end; }
-  .management-actions--primary { grid-column: 2 / 3; border-right: 0; }
-  .management-actions--operations { grid-column: 3; }
 }
 
 @media (max-width: 820px) {
@@ -732,7 +779,7 @@ button.metric-card { width: 100%; cursor: pointer; }
   .management-main h3, .management-main p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .capacity-control { justify-content: flex-start; }
   .management-actions--primary, .management-actions--operations { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .management-actions--operations { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .management-actions--operations { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .management-actions .button { min-width: 0; padding-inline: 6px; }
   .modal-backdrop { padding: 0; place-items: end center; }
   .slot-editor-modal { width: 100%; max-height: 94vh; border-radius: 16px 16px 0 0; }
@@ -752,9 +799,9 @@ button.metric-card { width: 100%; cursor: pointer; }
   .slot-preview > div { grid-template-columns: 72px minmax(0, 1fr); }
   .slot-preview strong { overflow-wrap: anywhere; }
   .slot-editor-actions .button { min-width: 105px; }
-  .phone-booking-modal, .cancel-slot-modal { width: 100%; max-height: 94vh; border-radius: 16px 16px 0 0; }
-  .phone-booking-modal > header, .cancel-slot-modal > header { min-height: 62px; padding-inline: 18px; }
-  .phone-booking-modal > header h2, .cancel-slot-modal > header h2 { font-size: 20px; }
+  .phone-booking-modal, .cancel-slot-modal, .participant-list-modal { width: 100%; max-height: 94vh; border-radius: 16px 16px 0 0; }
+  .phone-booking-modal > header, .cancel-slot-modal > header, .participant-list-modal > header { min-height: 62px; padding-inline: 18px; }
+  .phone-booking-modal > header h2, .cancel-slot-modal > header h2, .participant-list-modal > header h2 { font-size: 20px; }
   .phone-form, .cancel-slot-form { padding: 18px 16px 22px; }
   .phone-booking-modal .phone-form { padding-top: 14px; }
   .phone-booking-modal .phone-form > label { margin-top: 14px; }
@@ -774,6 +821,9 @@ button.metric-card { width: 100%; cursor: pointer; }
   .cancel-impact > div:last-child { border-bottom: 0; }
   .cancel-slot-form .modal-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .cancel-slot-form .modal-actions .button { min-width: 0; padding-inline: 10px; }
+  .participant-list-dialog { padding: 16px 16px 22px; }
+  .participant-list-dialog .modal-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .participant-list-dialog .modal-actions .button { min-width: 0; padding-inline: 8px; }
   .notification-list article { grid-template-columns: 38px 1fr; }
   .notification-list article > div { min-width: 0; }
   .notification-list small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
