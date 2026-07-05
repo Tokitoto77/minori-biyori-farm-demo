@@ -5,10 +5,10 @@ import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Clo
 import type { CalendarSlot, DisplaySlotStatus, Experience } from '../domain/types';
 import type { PublicRepository } from '../repositories/contracts';
 import { getSlotCallToAction, statusLabels, yen } from '../domain/rules';
+import { resolveCalendarDayStatus, selectInitialCalendarDate, visibleCalendarStatuses } from '../domain/calendarPresentation';
 import { Button, EmptyState, StatusBadge } from '../components/Common';
 import type { Navigate } from '../components/Shell';
 
-const priority: DisplaySlotStatus[] = ['cancelled', 'adjusting', 'paused', 'full', 'few', 'available', 'outside'];
 const shortStatusLabels: Record<DisplaySlotStatus, string> = {
   available: '受付中',
   few: '残り少',
@@ -23,10 +23,6 @@ const planImages: Record<string, string> = {
   blueberry: '/images/plan-blueberry.png',
   herb: '/images/plan-herb.png',
 };
-
-function strongestStatus(slots: CalendarSlot[]): DisplaySlotStatus {
-  return [...slots].sort((a, b) => priority.indexOf(a.displayStatus) - priority.indexOf(b.displayStatus))[0]?.displayStatus ?? 'outside';
-}
 
 export function PublicHome({ repository, navigate, revision }: { repository: PublicRepository; navigate: Navigate; revision: number }) {
   const [month, setMonth] = useState(startOfMonth(new Date()));
@@ -69,8 +65,8 @@ export function PublicHome({ repository, navigate, revision }: { repository: Pub
       setSlots(items);
       const currentSelectedDate = selectedDateRef.current;
       if (!items.some((slot) => currentSelectedDate && isSameDay(parseISO(slot.startAt), currentSelectedDate))) {
-        const featuredSlot = items.find((slot) => format(parseISO(slot.startAt), 'd') === '16');
-        const nextSelectedDate = featuredSlot ? parseISO(featuredSlot.startAt) : items[0] ? parseISO(items[0].startAt) : null;
+        const initialDate = selectInitialCalendarDate(items);
+        const nextSelectedDate = initialDate ? parseISO(initialDate) : null;
         commitSelectedDate(nextSelectedDate);
       }
     });
@@ -79,6 +75,7 @@ export function PublicHome({ repository, navigate, revision }: { repository: Pub
 
   const days = eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) });
   const selectedSlots = selectedDate ? slots.filter((slot) => isSameDay(parseISO(slot.startAt), selectedDate)) : [];
+  const legendStatuses = visibleCalendarStatuses(slots);
   function selectExperience(experienceId: string) {
     const nextSlot = nextSlots[experienceId];
     if (!nextSlot) return;
@@ -107,17 +104,14 @@ export function PublicHome({ repository, navigate, revision }: { repository: Pub
   return (
     <div className="harvest-home">
       <section className="app-hero" aria-labelledby="harvest-title">
-        <div className="app-hero__mosaic">
-          <img src="/images/strawberry-field.jpg" alt="温室で家族がいちごを摘んでいる様子" />
-          <img src="/images/blueberry-basket.jpg" alt="摘みたてのブルーベリー" />
-          <img src="/images/herb-garden.jpg" alt="摘みたてのハーブを束ねる様子" />
-        </div>
-        <div className="app-hero__veil" />
-        <div className="app-hero__title">
+        <div className="app-hero__copy">
           <span>MINORI BIYORI FARM</span>
-          <h1 id="harvest-title">季節の収穫体験を予約</h1>
+          <h1 id="harvest-title">季節の<br />収穫体験を予約</h1>
+          <p>旬の実りを、<br />家族の思い出に。</p>
         </div>
-        <p className="farm-note">土とふれあい、<br />旬を味わう。<br />しあわせな時間。</p>
+        <div className="app-hero__media">
+          <img src="/images/hero-strawberry-picking.jpg" alt="明るい温室で大粒のいちごを摘み取る手元" />
+        </div>
       </section>
 
       <section className="crop-selector" aria-label="体験の種類を選ぶ" ref={cropSelectorRef} onScroll={updateCropPager}>
@@ -142,7 +136,6 @@ export function PublicHome({ repository, navigate, revision }: { repository: Pub
       <section className="booking-board" id="calendar">
         <div className="calendar-title-row">
           <div><CalendarDays /><h2>{format(month, 'M月')}の予約カレンダー</h2></div>
-          <button type="button" onClick={() => setMonth(addMonths(month, 1))}>翌月へ <ChevronRight /></button>
         </div>
         <div className="calendar-layout">
           <div className="calendar-card">
@@ -156,17 +149,18 @@ export function PublicHome({ repository, navigate, revision }: { repository: Pub
               {Array.from({ length: getDay(startOfMonth(month)) }, (_, index) => <span className="calendar-blank" key={`blank-${index}`} />)}
               {days.map((day) => {
                 const daySlots = slots.filter((slot) => isSameDay(parseISO(slot.startAt), day));
-                const status = daySlots.length ? strongestStatus(daySlots) : null;
+                const status = daySlots.length ? resolveCalendarDayStatus(daySlots) : null;
                 const selected = selectedDate && isSameDay(day, selectedDate);
                 return (
-                  <button key={day.toISOString()} type="button" disabled={!daySlots.length} className={selected ? 'is-selected' : ''} onClick={() => commitSelectedDate(day)} aria-pressed={Boolean(selected)}>
+                  <button key={day.toISOString()} type="button" disabled={!daySlots.length} className={`${status ? `calendar-day--${status}` : 'calendar-day--empty'}${selected ? ' is-selected' : ''}`} onClick={() => commitSelectedDate(day)} aria-pressed={Boolean(selected)} aria-label={`${format(day, 'M月d日')} ${status ? statusLabels[status] : '開催なし'}`}>
                     <span className="day-number">{format(day, 'd')}</span>
-                    {status ? <span className={`day-status day-status--${status}`} aria-label={statusLabels[status]}><span className="day-status__long">{statusLabels[status]}</span><span className="day-status__short">{shortStatusLabels[status]}</span></span> : <span className="day-status">—</span>}
+                    {status ? <span className={`day-status day-status--${status}`}><span className="day-status__long">{statusLabels[status]}</span><span className="day-status__short">{shortStatusLabels[status]}</span></span> : <span className="day-status" aria-hidden="true" />}
+                    {selected && <span className="selected-marker" aria-hidden="true">✓</span>}
                   </button>
                 );
               })}
             </div>
-            <div className="legend" aria-label="予約状況の凡例">{(['available', 'few', 'full', 'adjusting', 'paused', 'cancelled'] as DisplaySlotStatus[]).map((status) => <span key={status}><i className={`legend-dot legend-dot--${status}`} />{statusLabels[status]}</span>)}</div>
+            {legendStatuses.length > 0 && <details className="calendar-legend"><summary>予約状況の見方</summary><div aria-label="予約状況の凡例">{legendStatuses.map((status) => <span key={status}><i className={`legend-dot legend-dot--${status}`} />{statusLabels[status]}</span>)}</div></details>}
           </div>
           <aside className="slot-panel" aria-live="polite">
             <header><Sprout /><h3>{selectedDate ? `${format(selectedDate, 'M月d日(E)', { locale: ja })}の体験プラン` : '日付を選択'}</h3></header>
