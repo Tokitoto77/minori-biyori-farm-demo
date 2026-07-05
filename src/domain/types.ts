@@ -11,6 +11,7 @@ export type DisplaySlotStatus =
 
 export type BookingStatus =
   | 'confirmed'
+  | 'checkedIn'
   | 'canceledByGuest'
   | 'canceledByAdmin'
   | 'slotCanceled';

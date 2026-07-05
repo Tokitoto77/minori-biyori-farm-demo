@@ -367,6 +367,46 @@ export class DemoRepository implements PublicRepository, BookingRepository, Admi
     return booking;
   }
 
+  async cancelBookingByAdmin(id: string, reason: string): Promise<Booking> {
+    const state = readDemoState();
+    const booking = state.bookings.find((item) => item.id === id);
+    if (!booking) throw new Error('予約が見つかりません。');
+    if (booking.status !== 'confirmed' && booking.status !== 'checkedIn') throw new Error('有効な予約だけをキャンセルできます。');
+    const slot = state.slots.find((item) => item.id === booking.slotId);
+    if (!slot) throw new Error('開催枠が見つかりません。');
+
+    booking.status = 'canceledByAdmin';
+    booking.updatedAt = new Date().toISOString();
+    const cancellationReason = reason.trim() || '管理画面から個別キャンセル';
+    this.addAudit(state, {
+      actor: 'demoAdmin',
+      action: 'ADMIN_BOOKING_CANCELED',
+      targetType: 'booking',
+      targetId: booking.id,
+      summary: `${booking.code}（${booking.totalPeople}名）をキャンセルしました。理由：${cancellationReason}`,
+    });
+    writeDemoState(state);
+    return booking;
+  }
+
+  async markBookingCheckedIn(id: string): Promise<Booking> {
+    const state = readDemoState();
+    const booking = state.bookings.find((item) => item.id === id);
+    if (!booking) throw new Error('予約が見つかりません。');
+    if (booking.status !== 'confirmed') throw new Error('確定中の予約だけを受付済みにできます。');
+    booking.status = 'checkedIn';
+    booking.updatedAt = new Date().toISOString();
+    this.addAudit(state, {
+      actor: 'demoAdmin',
+      action: 'BOOKING_CHECKED_IN',
+      targetType: 'booking',
+      targetId: booking.id,
+      summary: `${booking.code}（${booking.totalPeople}名）を受付済みにしました。`,
+    });
+    writeDemoState(state);
+    return booking;
+  }
+
   async promoteWaitlist(id: string): Promise<Booking> {
     const state = readDemoState();
     const entry = state.waitlistEntries.find((item) => item.id === id);
@@ -389,7 +429,7 @@ export class DemoRepository implements PublicRepository, BookingRepository, Admi
     if (!slot) throw new Error('開催枠が見つかりません。');
     if (slot.manualStatus === 'cancelled') throw new Error('この開催枠はすでに開催中止です。');
     const actualTargetIds = [
-      ...state.bookings.filter((booking) => booking.slotId === id && booking.status === 'confirmed').map((booking) => booking.id),
+      ...state.bookings.filter((booking) => booking.slotId === id && (booking.status === 'confirmed' || booking.status === 'checkedIn')).map((booking) => booking.id),
       ...state.waitlistEntries.filter((entry) => entry.slotId === id && entry.status === 'waiting').map((entry) => entry.id),
     ].sort();
     const reviewedTargetIds = [...expectedTargetIds].sort();
@@ -399,7 +439,7 @@ export class DemoRepository implements PublicRepository, BookingRepository, Admi
     slot.manualStatus = 'cancelled';
     slot.statusReason = reason || '生育・天候状況により開催を中止しました。';
     const calendarSlot = this.calendarize(state, slot);
-    state.bookings.filter((booking) => booking.slotId === id && booking.status === 'confirmed').forEach((booking) => {
+    state.bookings.filter((booking) => booking.slotId === id && (booking.status === 'confirmed' || booking.status === 'checkedIn')).forEach((booking) => {
       booking.status = 'slotCanceled';
       booking.updatedAt = new Date().toISOString();
       this.addNotification(state, 'slotCanceled', booking.id, calendarSlot, { reason: slot.statusReason });

@@ -13,7 +13,7 @@ export function calculatePrice(party: Party, prices: Prices): number {
 
 export function confirmedPeople(bookings: Booking[], slotId: string): number {
   return bookings
-    .filter((booking) => booking.slotId === slotId && booking.status === 'confirmed')
+    .filter((booking) => booking.slotId === slotId && (booking.status === 'confirmed' || booking.status === 'checkedIn'))
     .reduce((sum, booking) => sum + booking.totalPeople, 0);
 }
 

@@ -6,6 +6,7 @@ import {
   CalendarCheck2,
   CalendarDays,
   Check,
+  ChevronLeft,
   ChevronRight,
   CircleUserRound,
   Clock3,
@@ -14,6 +15,7 @@ import {
   LayoutDashboard,
   Leaf,
   Mail,
+  Minus,
   Phone,
   Plus,
   RotateCcw,
@@ -25,6 +27,7 @@ import {
 } from 'lucide-react';
 import type { AdminRepository } from '../repositories/contracts';
 import type { AuditLog, Booking, CalendarSlot, DashboardSummary, NotificationJob, WaitlistEntry } from '../domain/types';
+import { buildMonthGrid, moveMonth, toLocalDateKey } from '../admin-v2/calendarGrid';
 
 type AdminTabId = 'today' | 'slots' | 'guests' | 'notifications' | 'history';
 
@@ -101,6 +104,25 @@ function formatTime(iso: string): string {
   return new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
 }
 
+function slotStatusMeta(status: CalendarSlot['displayStatus']): { label: string; dotClass: string; badgeClass: string } {
+  switch (status) {
+    case 'available':
+      return { label: '受付中', dotClass: 'bg-admin-green', badgeClass: 'bg-[#E3EDE5] text-[#294F34]' };
+    case 'few':
+      return { label: '残り少', dotClass: 'bg-[#D97706]', badgeClass: 'bg-[#F7DFC0] text-[#713B00]' };
+    case 'full':
+      return { label: '満員', dotClass: 'bg-admin-red', badgeClass: 'bg-[#F4D4D2] text-[#812D29]' };
+    case 'adjusting':
+      return { label: '調整中', dotClass: 'bg-[#8B6A3D]', badgeClass: 'bg-[#EDE4D6] text-[#5B452A]' };
+    case 'paused':
+      return { label: '停止', dotClass: 'bg-admin-navy', badgeClass: 'bg-[#DDE2E8] text-admin-navy' };
+    case 'cancelled':
+      return { label: '中止', dotClass: 'bg-admin-red', badgeClass: 'bg-[#F4D4D2] text-[#812D29]' };
+    case 'outside':
+      return { label: '期間外', dotClass: 'bg-[#6B7280]', badgeClass: 'bg-[#E5E7EB] text-[#374151]' };
+  }
+}
+
 function HalfModal({ title, description, onClose, children }: { title: string; description: string; onClose: () => void; children: ReactNode }) {
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -165,6 +187,56 @@ function HalfModal({ title, description, onClose, children }: { title: string; d
   );
 }
 
+function GuestCountStepper({
+  label,
+  note,
+  count,
+  onDecrease,
+  onIncrease,
+  decreaseDisabled,
+  increaseDisabled,
+}: {
+  label: string;
+  note: string;
+  count: number;
+  onDecrease: () => void;
+  onIncrease: () => void;
+  decreaseDisabled: boolean;
+  increaseDisabled: boolean;
+}) {
+  return (
+    <div className="flex min-h-20 items-center justify-between gap-3 rounded-2xl border border-admin-green/20 bg-white/80 p-3 sm:px-4">
+      <div className="min-w-0">
+        <p className="text-sm font-black text-admin-navy">{label}</p>
+        <p className="mt-1 text-[11px] font-semibold text-admin-navy">{note}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2" role="group" aria-label={`${label}の人数`}>
+        <button
+          type="button"
+          onClick={onDecrease}
+          disabled={decreaseDisabled}
+          className="grid size-12 place-items-center rounded-xl border-2 border-admin-green/25 bg-admin-bg-primary text-admin-navy transition-colors hover:border-admin-green hover:bg-admin-green hover:!text-white disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy"
+          aria-label={`${label}を1名減らす`}
+        >
+          <Minus aria-hidden="true" className="size-5" strokeWidth={3} />
+        </button>
+        <output className="grid min-h-12 min-w-12 place-items-center rounded-xl bg-admin-bg-secondary px-2 text-xl font-black tabular-nums text-admin-navy" aria-label={`${label}${count}名`}>
+          {count}
+        </output>
+        <button
+          type="button"
+          onClick={onIncrease}
+          disabled={increaseDisabled}
+          className="grid size-12 place-items-center rounded-xl bg-admin-green !text-white transition-colors hover:bg-admin-navy disabled:cursor-not-allowed disabled:bg-admin-navy/30 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy"
+          aria-label={`${label}を1名増やす`}
+        >
+          <Plus aria-hidden="true" className="size-5" strokeWidth={3} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PhoneBookingModal({ repository, slots, onClose, onSaved }: { repository: AdminRepository; slots: CalendarSlot[]; onClose: () => void; onSaved: (booking: Booking, notificationQueued: boolean) => void }) {
   const [step, setStep] = useState(0);
   const [date, setDate] = useState('');
@@ -172,6 +244,9 @@ function PhoneBookingModal({ repository, slots, onClose, onSaved }: { repository
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [adultCount, setAdultCount] = useState(1);
+  const [childCount, setChildCount] = useState(0);
+  const [infantCount, setInfantCount] = useState(0);
   const [error, setError] = useState('');
   const availableSlots = useMemo(
     () => slots.filter((slot) => slot.publicationStatus === 'published' && (slot.displayStatus === 'available' || slot.displayStatus === 'few')),
@@ -183,6 +258,9 @@ function PhoneBookingModal({ repository, slots, onClose, onSaved }: { repository
   );
   const slotsForDate = availableSlots.filter((slot) => dateKey(slot.startAt) === date);
   const selectedSlot = availableSlots.find((slot) => slot.id === slotId);
+  const totalGuests = adultCount + childCount + infantCount;
+  const maximumGuests = Math.min(10, selectedSlot?.remaining ?? 10);
+  const canIncrease = totalGuests < maximumGuests;
   const steps = ['開催日', '時間枠', '連絡先'];
 
   function goNext() {
@@ -195,11 +273,14 @@ function PhoneBookingModal({ repository, slots, onClose, onSaved }: { repository
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedSlot) return setError('時間枠を選択し直してください。');
+    if (totalGuests < 1) return setError('参加人数を1名以上選択してください。');
+    if (totalGuests > 10) return setError('1グループの上限は10名です。11名以上は電話で個別調整してください。');
+    if (totalGuests > selectedSlot.remaining) return setError(`残席は${selectedSlot.remaining}席です。人数を調整してください。`);
     try {
       const notificationQueued = Boolean(email.trim());
       const booking = await repository.createPhoneBooking({
         slotId: selectedSlot.id,
-        party: { adults: 1, children: 0, infants: 0 },
+        party: { adults: adultCount, children: childCount, infants: infantCount },
         contact: { name, phone, email: email.trim() },
         sendNotification: notificationQueued,
       });
@@ -256,7 +337,7 @@ function PhoneBookingModal({ repository, slots, onClose, onSaved }: { repository
             <div className="mt-5 grid gap-3">
               {slotsForDate.map((slot) => (
                 <label key={slot.id} className="relative flex min-h-20 cursor-pointer items-center justify-between gap-4 rounded-xl border border-admin-green/15 bg-white/75 px-4 py-3 transition-colors has-[:checked]:border-admin-green has-[:checked]:bg-admin-green/8">
-                  <input className="peer sr-only" type="radio" name="booking-slot" value={slot.id} checked={slotId === slot.id} onChange={() => setSlotId(slot.id)} />
+                  <input className="peer sr-only" type="radio" name="booking-slot" value={slot.id} checked={slotId === slot.id} onChange={() => { setSlotId(slot.id); setAdultCount(1); setChildCount(0); setInfantCount(0); }} />
                   <span className="min-w-0">
                     <strong className="block text-base text-admin-navy">{formatTime(slot.startAt)}〜{formatTime(slot.endAt)}</strong>
                     <small className="mt-1 block truncate text-xs font-semibold text-admin-navy/55">{slot.experience.name}・残り{slot.remaining}席</small>
@@ -273,7 +354,26 @@ function PhoneBookingModal({ repository, slots, onClose, onSaved }: { repository
         {step === 2 && (
           <fieldset>
             <legend className="font-admin-sans text-lg font-black text-admin-navy">どなたの予約ですか？</legend>
-            <p className="mt-1 text-xs font-semibold text-admin-navy/55">名前と電話番号だけで登録できます。メール通知は任意です。</p>
+            <p className="mt-1 text-xs font-semibold text-admin-navy">人数と代表者の連絡先を確認します。メール通知は任意です。</p>
+            <section aria-labelledby="phone-party-title" className="mt-5 rounded-2xl bg-admin-bg-secondary/70 p-3 sm:p-4">
+              <div className="flex items-end justify-between gap-4">
+                <div>
+                  <h3 id="phone-party-title" className="text-sm font-black text-admin-navy">参加人数</h3>
+                  <p className="mt-1 text-[11px] font-semibold text-admin-navy">残席と照合して、その場で確実に枠を確保します。</p>
+                </div>
+                <output className="rounded-xl bg-admin-green px-4 py-2 text-sm font-black text-white" aria-live="polite">合計 {totalGuests}名</output>
+              </div>
+              <div className="mt-4 grid gap-3">
+                <GuestCountStepper label="大人" note="中学生以上" count={adultCount} onDecrease={() => setAdultCount((count) => Math.max(0, count - 1))} onIncrease={() => setAdultCount((count) => count + 1)} decreaseDisabled={adultCount === 0 || totalGuests <= 1} increaseDisabled={!canIncrease} />
+                <GuestCountStepper label="子ども" note="小学生" count={childCount} onDecrease={() => setChildCount((count) => Math.max(0, count - 1))} onIncrease={() => setChildCount((count) => count + 1)} decreaseDisabled={childCount === 0 || totalGuests <= 1} increaseDisabled={!canIncrease} />
+                <GuestCountStepper label="幼児" note="未就学児" count={infantCount} onDecrease={() => setInfantCount((count) => Math.max(0, count - 1))} onIncrease={() => setInfantCount((count) => count + 1)} decreaseDisabled={infantCount === 0 || totalGuests <= 1} increaseDisabled={!canIncrease} />
+              </div>
+              {totalGuests >= 10 ? (
+                <p role="status" className="mt-3 rounded-xl bg-admin-red/10 px-4 py-3 text-xs font-black text-admin-red">上限の10名です。11名以上の団体は、別枠確保のため電話で個別調整してください。</p>
+              ) : selectedSlot && totalGuests >= selectedSlot.remaining ? (
+                <p role="status" className="mt-3 rounded-xl bg-[#F7DFC0] px-4 py-3 text-xs font-black text-[#713B00]">この枠の残席{selectedSlot.remaining}席をすべて確保します。</p>
+              ) : null}
+            </section>
             <div className="mt-5 grid gap-4">
               <label className="grid gap-2 text-sm font-extrabold text-admin-navy">
                 お名前
@@ -343,7 +443,7 @@ function PhoneBookingModal({ repository, slots, onClose, onSaved }: { repository
             <button
               type="button"
               onClick={goNext}
-              className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-admin-green px-5 text-sm font-black text-white hover:bg-admin-navy focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-red/40"
+              className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-admin-green px-5 text-sm font-black !text-white hover:bg-admin-navy focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-red/40"
             >
               {step === 0 ? 'この日で時間を選ぶ' : 'この枠で連絡先を入力'}
               <ChevronRight aria-hidden="true" className="size-4" />
@@ -351,7 +451,8 @@ function PhoneBookingModal({ repository, slots, onClose, onSaved }: { repository
           ) : (
             <button
               type="submit"
-              className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-admin-green px-5 text-sm font-black text-white hover:bg-admin-navy focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-red/40"
+              disabled={totalGuests < 1 || !selectedSlot || totalGuests > selectedSlot.remaining}
+              className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-admin-green px-5 text-sm font-black !text-white hover:bg-admin-navy disabled:cursor-not-allowed disabled:bg-admin-navy/30 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy"
             >
               <Check aria-hidden="true" className="size-4" />
               予約枠を確保して登録
@@ -367,7 +468,7 @@ function BulkCancellationModal({ repository, slot, bookings, waitlist, onClose, 
   const [slideValue, setSlideValue] = useState(0);
   const [reason, setReason] = useState('荒天予報のため');
   const [error, setError] = useState('');
-  const targetBookings = bookings.filter((booking) => booking.slotId === slot.id && booking.status === 'confirmed');
+  const targetBookings = bookings.filter((booking) => booking.slotId === slot.id && (booking.status === 'confirmed' || booking.status === 'checkedIn'));
   const targetWaitlist = waitlist.filter((entry) => entry.slotId === slot.id && entry.status === 'waiting');
   const affectedBookings = targetBookings.length;
   const affectedUsers = [...targetBookings, ...targetWaitlist].reduce((sum, item) => sum + item.totalPeople, 0);
@@ -512,7 +613,7 @@ function BookingCard({ booking, slot }: { booking: Booking; slot?: CalendarSlot 
 
 function GuestList({ bookings, slots }: { bookings: Booking[]; slots: CalendarSlot[] }) {
   const slotMap = new Map(slots.map((slot) => [slot.id, slot]));
-  const activeBookings = bookings.filter((booking) => booking.status === 'confirmed');
+  const activeBookings = bookings.filter((booking) => booking.status === 'confirmed' || booking.status === 'checkedIn');
   return (
     <section aria-labelledby="guest-list-title">
       <div className="mb-4 flex items-end justify-between gap-4">
@@ -524,9 +625,194 @@ function GuestList({ bookings, slots }: { bookings: Booking[]; slots: CalendarSl
   );
 }
 
-function TodayDashboard({ dashboard, bookings, slots, onAddBooking, onBulkCancellation }: { dashboard: DashboardSummary; bookings: Booking[]; slots: CalendarSlot[]; onAddBooking: () => void; onBulkCancellation: () => void }) {
+function SlotCalendar({
+  slots,
+  currentMonth,
+  selectedDate,
+  onMonthChange,
+  onDateSelect,
+}: {
+  slots: CalendarSlot[];
+  currentMonth: Date;
+  selectedDate: Date;
+  onMonthChange: (month: Date) => void;
+  onDateSelect: (date: Date) => void;
+}) {
+  const monthRows = useMemo(() => buildMonthGrid(currentMonth), [currentMonth]);
+  const slotsByDate = useMemo(() => {
+    const grouped = new Map<string, CalendarSlot[]>();
+    slots.forEach((slot) => {
+      const key = dateKey(slot.startAt);
+      grouped.set(key, [...(grouped.get(key) ?? []), slot]);
+    });
+    grouped.forEach((items) => items.sort((left, right) => left.startAt.localeCompare(right.startAt)));
+    return grouped;
+  }, [slots]);
+  const selectedKey = toLocalDateKey(selectedDate);
+  const selectedSlots = slotsByDate.get(selectedKey) ?? [];
+  const monthLabel = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long' }).format(currentMonth);
+  const selectedLabel = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }).format(selectedDate);
+  const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+
+  function changeMonth(offset: number) {
+    const nextMonth = moveMonth(currentMonth, offset);
+    onMonthChange(nextMonth);
+    onDateSelect(nextMonth);
+  }
+
+  return (
+    <div className="space-y-6">
+      <section aria-labelledby="slot-calendar-title" className="overflow-hidden rounded-3xl border border-admin-green/20 bg-white/75 shadow-[0_18px_55px_rgba(30,50,80,0.08)]">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-admin-green/15 bg-admin-bg-secondary/65 px-4 py-4 sm:px-6">
+          <button
+            type="button"
+            onClick={() => changeMonth(-1)}
+            className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-xl border border-admin-green/25 bg-white px-3 text-sm font-black text-admin-navy transition-colors hover:bg-admin-green hover:text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy"
+            aria-label={`${new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long' }).format(moveMonth(currentMonth, -1))}へ移動`}
+          >
+            <ChevronLeft aria-hidden="true" className="size-4" />
+            <span className="hidden sm:inline">前月</span>
+          </button>
+          <div className="text-center">
+            <p className="text-[11px] font-black tracking-[0.18em] text-admin-green">MONTHLY SCHEDULE</p>
+            <h2 id="slot-calendar-title" className="font-admin-sans mt-1 text-xl font-black text-admin-navy sm:text-2xl">{monthLabel}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => changeMonth(1)}
+            className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-xl border border-admin-green/25 bg-white px-3 text-sm font-black text-admin-navy transition-colors hover:bg-admin-green hover:text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy"
+            aria-label={`${new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long' }).format(moveMonth(currentMonth, 1))}へ移動`}
+          >
+            <span className="hidden sm:inline">翌月</span>
+            <ChevronRight aria-hidden="true" className="size-4" />
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[22rem] table-fixed border-collapse" aria-label={`${monthLabel}の開催枠カレンダー`}>
+            <thead>
+              <tr>
+                {weekdays.map((weekday) => (
+                  <th key={weekday} scope="col" className="h-11 border-b border-r border-admin-green/15 bg-admin-bg-primary text-center text-xs font-black text-admin-navy last:border-r-0">
+                    {weekday}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {monthRows.map((row, rowIndex) => (
+                <tr key={`week-${rowIndex}`}>
+                  {row.map((cell) => {
+                    if (!cell.date || !cell.day) {
+                      return <td key={cell.key} aria-hidden="true" className="h-24 border-b border-r border-admin-green/10 bg-admin-bg-primary/45 p-0 last:border-r-0" />;
+                    }
+
+                    const cellKey = toLocalDateKey(cell.date);
+                    const cellSlots = slotsByDate.get(cellKey) ?? [];
+                    const isSelected = selectedKey === cellKey;
+                    const slotSummary = cellSlots.length
+                      ? cellSlots.map((slot) => `${formatTime(slot.startAt)} ${slotStatusMeta(slot.displayStatus).label}`).join('、')
+                      : '開催枠なし';
+
+                    return (
+                      <td key={cell.key} className="border-b border-r border-admin-green/10 p-0 align-top last:border-r-0">
+                        <button
+                          type="button"
+                          onClick={() => onDateSelect(cell.date!)}
+                          aria-pressed={isSelected}
+                          aria-label={`${monthLabel}${cell.day}日、${slotSummary}`}
+                          className={`flex min-h-24 w-full min-w-11 flex-col items-stretch gap-1 p-1.5 text-left transition-colors focus-visible:relative focus-visible:z-10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset sm:min-h-28 sm:p-2 ${
+                            isSelected
+                              ? 'bg-admin-green text-white shadow-[inset_0_0_0_2px_rgba(255,255,255,0.28)] focus-visible:ring-white'
+                              : 'bg-white/55 text-admin-navy hover:bg-admin-bg-secondary focus-visible:ring-admin-navy'
+                          }`}
+                        >
+                          <span className={`self-start text-sm font-black ${isSelected ? 'text-white' : 'text-admin-navy'}`}>{cell.day}</span>
+                          <span className="grid gap-1">
+                            {cellSlots.map((slot) => {
+                              const meta = slotStatusMeta(slot.displayStatus);
+                              return (
+                                <span
+                                  key={slot.id}
+                                  className={`block rounded-md px-1 py-1 text-[9px] font-black leading-tight sm:text-[10px] ${isSelected ? 'bg-white/16 text-white' : meta.badgeClass}`}
+                                >
+                                  <span className={`mr-1 inline-block size-1.5 rounded-full align-middle ${isSelected ? 'bg-white' : meta.dotClass}`} aria-hidden="true" />
+                                  <span className="block truncate sm:inline">{formatTime(slot.startAt)}</span>{' '}
+                                  <span className="block sm:inline">{meta.label}</span>
+                                </span>
+                              );
+                            })}
+                          </span>
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-admin-green/15 bg-admin-bg-primary px-4 py-3 text-[11px] font-bold text-admin-navy sm:px-6" aria-label="開催枠ステータスの凡例">
+          {(['available', 'few', 'full', 'adjusting', 'paused', 'cancelled', 'outside'] as const).map((status) => {
+            const meta = slotStatusMeta(status);
+            return <span key={status} className="inline-flex items-center gap-1.5"><span className={`size-2 rounded-full ${meta.dotClass}`} aria-hidden="true" />{meta.label}</span>;
+          })}
+        </div>
+      </section>
+
+      <section aria-labelledby="selected-slots-title" aria-live="polite">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-black tracking-[0.16em] text-admin-green">SELECTED DATE</p>
+            <h2 id="selected-slots-title" className="font-admin-sans mt-1 text-xl font-black text-admin-navy sm:text-2xl">{selectedLabel}の時間枠</h2>
+          </div>
+          <p className="rounded-full bg-admin-bg-secondary px-3 py-2 text-xs font-black text-admin-green">{selectedSlots.length}枠</p>
+        </div>
+
+        {selectedSlots.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-admin-green/30 bg-white/55 px-5 py-10 text-center">
+            <CalendarDays aria-hidden="true" className="mx-auto size-8 text-admin-green" />
+            <p className="mt-3 text-sm font-black text-admin-navy">この日の開催枠はありません</p>
+            <p className="mt-1 text-xs font-semibold text-admin-navy">別の日付を選ぶか、翌月の予定を確認してください。</p>
+          </div>
+        ) : (
+          <div className="grid gap-3 lg:grid-cols-2">
+            {selectedSlots.map((slot) => {
+              const meta = slotStatusMeta(slot.displayStatus);
+              return (
+                <article key={slot.id} className="rounded-2xl border border-admin-green/15 bg-white/80 p-5 shadow-[0_10px_28px_rgba(30,50,80,0.06)]">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-black text-admin-green">{formatTime(slot.startAt)}〜{formatTime(slot.endAt)}</p>
+                      <h3 className="font-admin-sans mt-1 text-lg font-black text-admin-navy">{slot.experience.name}</h3>
+                    </div>
+                    <span className={`inline-flex min-h-7 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-black ${meta.badgeClass}`}>
+                      <span className={`size-2 rounded-full ${meta.dotClass}`} aria-hidden="true" />{meta.label}
+                    </span>
+                  </div>
+                  <dl className="mt-4 grid grid-cols-3 gap-2 border-t border-admin-green/10 pt-4 text-center">
+                    <div><dt className="text-[10px] font-bold text-admin-navy">予約</dt><dd className="mt-1 text-lg font-black text-admin-navy">{slot.bookedPeople}名</dd></div>
+                    <div><dt className="text-[10px] font-bold text-admin-navy">定員</dt><dd className="mt-1 text-lg font-black text-admin-navy">{slot.capacity}名</dd></div>
+                    <div><dt className="text-[10px] font-bold text-admin-navy">残席</dt><dd className="mt-1 text-lg font-black text-admin-green">{slot.remaining}席</dd></div>
+                  </dl>
+                  <p className="mt-4 text-xs font-semibold leading-6 text-admin-navy">{slot.note || '当日の運営状況を確認して受付してください。'}</p>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function TodayDashboard({ dashboard, bookings, slots, onAddBooking, onBulkCancellation, onCancelBooking, onCheckInBooking }: { dashboard: DashboardSummary; bookings: Booking[]; slots: CalendarSlot[]; onAddBooking: () => void; onBulkCancellation: () => void; onCancelBooking: (booking: Booking) => Promise<boolean>; onCheckInBooking: (booking: Booking) => Promise<boolean> }) {
+  const [expandedSlotId, setExpandedSlotId] = useState<string | null>(dashboard.todaySlots[0]?.id ?? null);
+  const [cancelingBookingId, setCancelingBookingId] = useState('');
+  const [checkingInBookingId, setCheckingInBookingId] = useState('');
   const focusSlotIds = new Set(dashboard.todaySlots.map((slot) => slot.id));
-  const focusBookings = bookings.filter((booking) => booking.status === 'confirmed' && focusSlotIds.has(booking.slotId));
+  const focusBookings = bookings.filter((booking) => (booking.status === 'confirmed' || booking.status === 'checkedIn') && focusSlotIds.has(booking.slotId));
   const slotMap = new Map(slots.map((slot) => [slot.id, slot]));
   const kpis: KpiItem[] = [
     { label: '本日の予約', value: `${focusBookings.length}組`, note: `${dashboard.todaySlots.length}つの開催枠`, icon: CalendarCheck2 },
@@ -568,6 +854,118 @@ function TodayDashboard({ dashboard, bookings, slots, onAddBooking, onBulkCancel
                 </div>
                 <p className="mt-2 text-3xl font-black tracking-[-0.04em]">{item.value}</p>
                 <p className={`mt-2 text-[11px] font-bold leading-5 ${item.alert ? 'text-white/85' : 'text-admin-navy/55'}`}>{item.note}</p>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section aria-labelledby="today-slots-title">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-black tracking-[0.16em] text-admin-green">ARRIVALS</p>
+            <h2 id="today-slots-title" className="font-admin-sans mt-1 text-xl font-black text-admin-navy sm:text-2xl">本日の開催枠状況</h2>
+          </div>
+          <p className="text-xs font-bold text-admin-navy">枠を押すと予約者全員を確認できます</p>
+        </div>
+
+        <div className="grid gap-3">
+          {dashboard.todaySlots.map((slot) => {
+            const isExpanded = expandedSlotId === slot.id;
+            const slotBookings = focusBookings.filter((booking) => booking.slotId === slot.id);
+            const status = slotStatusMeta(slot.displayStatus);
+            return (
+              <article key={slot.id} className={`overflow-hidden rounded-2xl border bg-white/80 shadow-[0_12px_32px_rgba(30,50,80,0.07)] transition-colors ${isExpanded ? 'border-admin-green/45' : 'border-admin-green/15'}`}>
+                <button
+                  type="button"
+                  onClick={() => setExpandedSlotId((current) => current === slot.id ? null : slot.id)}
+                  aria-expanded={isExpanded}
+                  aria-controls={`slot-guests-${slot.id}`}
+                  className="grid min-h-20 w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-4 text-left hover:bg-admin-bg-secondary/65 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-admin-navy sm:gap-5 sm:px-5"
+                >
+                  <span className="grid min-w-16 place-items-center rounded-xl bg-admin-bg-secondary px-3 py-2 text-admin-green">
+                    <Clock3 aria-hidden="true" className="size-4" />
+                    <strong className="mt-1 text-lg leading-none">{formatTime(slot.startAt)}</strong>
+                  </span>
+                  <span className="min-w-0">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <strong className="truncate text-base font-black text-admin-navy">{slot.experience.name}</strong>
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black ${status.badgeClass}`}><span className={`size-1.5 rounded-full ${status.dotClass}`} aria-hidden="true" />{status.label}</span>
+                    </span>
+                    <span className="mt-1 block text-xs font-bold text-admin-navy">{slotBookings.length}組・{slot.bookedPeople}名予約／残席{slot.remaining}席</span>
+                  </span>
+                  <ChevronRight aria-hidden="true" className={`size-5 text-admin-green transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                </button>
+
+                {isExpanded && (
+                  <div id={`slot-guests-${slot.id}`} className="border-t border-admin-green/15 bg-admin-bg-primary px-4 py-4 sm:px-5 sm:py-5">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h3 className="text-sm font-black text-admin-navy">この枠の予約者</h3>
+                      <span className="rounded-full bg-admin-green px-3 py-1.5 text-xs font-black text-white">合計 {slot.bookedPeople}名</span>
+                    </div>
+                    {slotBookings.length === 0 ? (
+                      <p className="rounded-xl border border-dashed border-admin-green/25 bg-white/70 px-4 py-6 text-center text-sm font-bold text-admin-navy">現在、確定予約はありません。</p>
+                    ) : (
+                      <ul className="grid gap-3" aria-label={`${formatDay(slot.startAt)} ${formatTime(slot.startAt)}の予約者一覧`}>
+                        {slotBookings.map((booking) => {
+                          const partyDetails = [
+                            booking.party.adults ? `大人 ${booking.party.adults}名` : '',
+                            booking.party.children ? `子ども ${booking.party.children}名` : '',
+                            booking.party.infants ? `幼児 ${booking.party.infants}名` : '',
+                          ].filter(Boolean).join('、');
+                          const apologySubject = `${slot.experience.name}に関するお詫び`;
+                          const apologyBody = `${booking.contact.name} 様\n\n${formatDay(slot.startAt)} ${formatTime(slot.startAt)}の${slot.experience.name}についてご連絡いたします。\nご迷惑をおかけし申し訳ございません。詳細は農園より改めてご案内いたします。`;
+                          const mailto = `mailto:${encodeURIComponent(booking.contact.email)}?subject=${encodeURIComponent(apologySubject)}&body=${encodeURIComponent(apologyBody)}`;
+                          return (
+                            <li key={booking.id} className="rounded-2xl border border-admin-green/15 bg-white p-4">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-base font-black text-admin-navy">{booking.contact.name}</p>
+                                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${booking.status === 'checkedIn' ? 'bg-admin-navy !text-white' : 'bg-admin-green/10 text-admin-green'}`}>{booking.status === 'checkedIn' ? '受付済' : '確定'}</span>
+                                    <span className="rounded-full bg-admin-bg-secondary px-2.5 py-1 text-[10px] font-black text-admin-navy">{booking.source === 'phone' ? '電話' : booking.source === 'web' ? 'Web' : '待機繰上'}</span>
+                                  </div>
+                                  <p className="mt-2 text-xs font-bold text-admin-navy">{partyDetails}（合計 {booking.totalPeople}名）</p>
+                                  <p className="mt-1 text-[11px] font-semibold text-admin-navy">予約番号 {booking.code}</p>
+                                </div>
+                                <a href={`tel:${booking.contact.phone}`} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-admin-green/25 bg-admin-bg-primary px-3 text-sm font-black !text-admin-navy hover:bg-admin-green hover:!text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy" aria-label={`${booking.contact.name}さんへ電話する`}>
+                                  <Phone aria-hidden="true" className="size-4" />{booking.contact.phone}
+                                </a>
+                              </div>
+                              <div className="mt-4 grid grid-cols-2 gap-2 border-t border-admin-green/10 pt-4 sm:grid-cols-3">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setCheckingInBookingId(booking.id);
+                                    try { await onCheckInBooking(booking); } finally { setCheckingInBookingId(''); }
+                                  }}
+                                  disabled={booking.status === 'checkedIn' || checkingInBookingId === booking.id}
+                                  className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-admin-green px-3 text-xs font-black !text-white hover:bg-admin-navy disabled:cursor-default disabled:bg-admin-navy disabled:opacity-75 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy sm:col-span-1"
+                                >
+                                  <Check aria-hidden="true" className="size-4" />{booking.status === 'checkedIn' ? '受付済み' : checkingInBookingId === booking.id ? '受付処理中…' : '受付済みにする'}
+                                </button>
+                                <a href={mailto} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-admin-green/30 bg-white px-3 text-xs font-black !text-admin-green hover:bg-admin-green hover:!text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy" aria-label={`${booking.contact.name}さんへお詫びメールを作成`}>
+                                  <Mail aria-hidden="true" className="size-4" />お詫びメール
+                                </a>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setCancelingBookingId(booking.id);
+                                    try { await onCancelBooking(booking); } finally { setCancelingBookingId(''); }
+                                  }}
+                                  disabled={cancelingBookingId === booking.id}
+                                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-admin-red px-3 text-xs font-black !text-white hover:bg-[#A93531] disabled:cursor-wait disabled:opacity-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy"
+                                >
+                                  <X aria-hidden="true" className="size-4" />{cancelingBookingId === booking.id ? '処理中…' : '予約をキャンセル'}
+                                </button>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                )}
               </article>
             );
           })}
@@ -620,7 +1018,7 @@ function TodayDashboard({ dashboard, bookings, slots, onAddBooking, onBulkCancel
           <button
             type="button"
             onClick={onAddBooking}
-            className="pointer-events-auto inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-admin-green px-6 text-sm font-black text-white shadow-[0_14px_30px_rgba(67,110,79,0.3)] transition-colors hover:bg-admin-navy focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-red/45 sm:w-auto"
+            className="pointer-events-auto inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-admin-green px-6 text-sm font-black !text-white shadow-[0_14px_30px_rgba(67,110,79,0.3)] transition-colors hover:bg-admin-navy focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-red/45 sm:w-auto"
           >
             <Plus aria-hidden="true" className="size-5" />
             予約を追加
@@ -633,6 +1031,8 @@ function TodayDashboard({ dashboard, bookings, slots, onAddBooking, onBulkCancel
 
 export default function NewAdminShell({ repository, revision, onChanged }: { repository: AdminRepository; revision: number; onChanged: () => void }) {
   const [activeTab, setActiveTab] = useState<AdminTabId>('today');
+  const [currentMonth, setCurrentMonth] = useState(() => new Date(2026, 6, 1));
+  const [selectedDate, setSelectedDate] = useState(() => new Date(2026, 6, 1));
   const [phoneBookingOpen, setPhoneBookingOpen] = useState(false);
   const [bulkCancellationOpen, setBulkCancellationOpen] = useState(false);
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
@@ -685,6 +1085,34 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
     await load();
     setStatusMessage('デモデータを初期状態へ戻しました。次の案内を同じ条件で開始できます。');
     setActiveTab('history');
+  }
+
+  async function handleBookingCancellation(booking: Booking): Promise<boolean> {
+    const accepted = window.confirm(`${booking.contact.name}さんの予約（${booking.totalPeople}名）をキャンセルします。\nこの操作で対象枠の残席が${booking.totalPeople}席戻ります。実行しますか？`);
+    if (!accepted) return false;
+    try {
+      await repository.cancelBookingByAdmin(booking.id, '管理画面の開催枠詳細から個別キャンセル');
+      onChanged();
+      await load();
+      setStatusMessage(`${booking.contact.name}さんの予約${booking.totalPeople}名分をキャンセルし、残席へ戻しました。`);
+      return true;
+    } catch (cause) {
+      window.alert(cause instanceof Error ? cause.message : '予約をキャンセルできませんでした。');
+      return false;
+    }
+  }
+
+  async function handleBookingCheckIn(booking: Booking): Promise<boolean> {
+    try {
+      await repository.markBookingCheckedIn(booking.id);
+      onChanged();
+      await load();
+      setStatusMessage(`${booking.contact.name}さん（${booking.totalPeople}名）を受付済みにしました。`);
+      return true;
+    } catch (cause) {
+      window.alert(cause instanceof Error ? cause.message : '受付処理を完了できませんでした。');
+      return false;
+    }
   }
 
   if (!dashboard) return <div className="grid min-h-dvh place-items-center bg-admin-bg-primary font-admin-sans font-bold text-admin-green">管理画面を準備しています…</div>;
@@ -787,6 +1215,16 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
               slots={slots}
               onAddBooking={() => setPhoneBookingOpen(true)}
               onBulkCancellation={() => cancellationSlot ? setBulkCancellationOpen(true) : setStatusMessage('中止できる開催枠はありません。')}
+              onCancelBooking={handleBookingCancellation}
+              onCheckInBooking={handleBookingCheckIn}
+            />
+          ) : activeTab === 'slots' ? (
+            <SlotCalendar
+              slots={slots}
+              currentMonth={currentMonth}
+              selectedDate={selectedDate}
+              onMonthChange={setCurrentMonth}
+              onDateSelect={setSelectedDate}
             />
           ) : activeTab === 'guests' ? (
             <GuestList bookings={bookings} slots={slots} />

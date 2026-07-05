@@ -39,6 +39,8 @@ export interface AdminRepository {
   listWaitlistEntries(slotId?: string): Promise<WaitlistEntry[]>;
   listNotificationJobs(status?: NotificationJob['status']): Promise<NotificationJob[]>;
   createPhoneBooking(input: PhoneBookingInput): Promise<Booking>;
+  markBookingCheckedIn(id: string): Promise<Booking>;
+  cancelBookingByAdmin(id: string, reason: string): Promise<Booking>;
   promoteWaitlist(id: string): Promise<Booking>;
   cancelSlot(id: string, reason: string, expectedTargetIds: string[]): Promise<Slot>;
   listAuditLogs(): Promise<AuditLog[]>;
