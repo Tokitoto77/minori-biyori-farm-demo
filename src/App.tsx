@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { createServices } from './app/createServices';
 import { Shell, type Navigate } from './components/Shell';
 import { DEMO_UPDATED_EVENT } from './demo/storage';
-import { AdminPage } from './pages/AdminPage';
 import { BookingFlow, LookupPage } from './pages/BookingPages';
+import NewAdminShell from './pages/NewAdminShell';
 import { PublicHome, SlotDetail } from './pages/PublicPages';
 
 function currentPath(): string {
-  return window.location.hash.replace(/^#/, '') || '/';
+  const hashPath = window.location.hash.replace(/^#/, '');
+  if (hashPath) return hashPath;
+  return window.location.pathname === '/admin' ? '/admin' : '/';
 }
 
 export default function App() {
@@ -19,9 +21,11 @@ export default function App() {
     const onHashChange = () => { setPath(currentPath()); window.scrollTo({ top: 0, behavior: 'smooth' }); };
     const onDemoChange = () => setRevision((value) => value + 1);
     window.addEventListener('hashchange', onHashChange);
+    window.addEventListener('storage', onDemoChange);
     window.addEventListener(DEMO_UPDATED_EVENT, onDemoChange);
     return () => {
       window.removeEventListener('hashchange', onHashChange);
+      window.removeEventListener('storage', onDemoChange);
       window.removeEventListener(DEMO_UPDATED_EVENT, onDemoChange);
     };
   }, []);
@@ -33,7 +37,7 @@ export default function App() {
   const onChanged = () => setRevision((value) => value + 1);
 
   if (path === '/admin') {
-    return <AdminPage repository={services.adminRepository} navigate={navigate} revision={revision} onChanged={onChanged} />;
+    return <NewAdminShell repository={services.adminRepository} revision={revision} onChanged={onChanged} />;
   }
 
   let page = <PublicHome repository={services.publicRepository} navigate={navigate} revision={revision} />;
