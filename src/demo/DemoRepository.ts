@@ -268,13 +268,19 @@ export class DemoRepository implements PublicRepository, BookingRepository, Admi
       waitlistSeq: 0,
     }));
     state.slots.push(...slots);
-    slots.forEach((slot) => this.addAudit(state, {
-      actor: 'demoAdmin',
-      action: 'SLOT_CREATED',
-      targetType: 'slot',
-      targetId: slot.id,
-      summary: `${slot.publicationStatus === 'published' ? '公開' : '下書き'}の開催枠を作成しました。`,
-    }));
+    slots.forEach((slot) => {
+      const experience = state.experiences.find((item) => item.id === slot.experienceId);
+      const dateTime = format(new Date(slot.startAt), 'M/d H:mm', { locale: ja });
+      this.addAudit(state, {
+        actor: 'demoAdmin',
+        action: 'SLOT_CREATED',
+        targetType: 'slot',
+        targetId: slot.id,
+        summary: slot.publicationStatus === 'published'
+          ? `${dateTime} ${experience?.name ?? '収穫体験'}を定員${slot.capacity}名で公開しました`
+          : `${dateTime} ${experience?.name ?? '収穫体験'}を下書き保存しました`,
+      });
+    });
     writeDemoState(state);
     return slots;
   }

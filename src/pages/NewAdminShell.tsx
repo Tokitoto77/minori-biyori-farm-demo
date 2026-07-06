@@ -15,6 +15,7 @@ import {
   History,
   LayoutDashboard,
   Leaf,
+  LoaderCircle,
   Mail,
   Minus,
   Pause,
@@ -29,7 +30,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { AdminRepository } from '../repositories/contracts';
-import type { AuditLog, Booking, CalendarSlot, DashboardSummary, NotificationJob, WaitlistEntry } from '../domain/types';
+import type { AuditLog, Booking, CalendarSlot, DashboardSummary, Experience, NotificationJob, Slot, WaitlistEntry } from '../domain/types';
 import { buildMonthGrid, moveMonth, toLocalDateKey } from '../admin-v2/calendarGrid';
 
 type AdminTabId = 'today' | 'slots' | 'guests' | 'notifications' | 'history';
@@ -107,6 +108,10 @@ function formatTime(iso: string): string {
   return new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
 }
 
+function formatYen(value: number): string {
+  return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(value);
+}
+
 function slotStatusMeta(status: CalendarSlot['displayStatus']): { label: string; dotClass: string; badgeClass: string } {
   switch (status) {
     case 'available':
@@ -168,7 +173,7 @@ function HalfModal({ title, description, onClose, children }: { title: string; d
         aria-labelledby="half-modal-title"
         aria-describedby="half-modal-description"
         tabIndex={-1}
-        className="max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-admin-bg-primary shadow-[0_-24px_70px_rgba(30,50,80,0.28)] focus-visible:outline-none sm:rounded-3xl"
+        className="admin-half-modal max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-admin-bg-primary shadow-[0_-24px_70px_rgba(30,50,80,0.28)] focus-visible:outline-none sm:rounded-3xl"
       >
         <header className="sticky top-0 z-10 flex items-start justify-between gap-5 border-b border-admin-green/15 bg-admin-bg-primary/95 px-5 py-5 backdrop-blur-md sm:px-7">
           <div>
@@ -187,6 +192,270 @@ function HalfModal({ title, description, onClose, children }: { title: string; d
         {children}
       </div>
     </div>
+  );
+}
+
+interface CreateSlotErrors {
+  experienceId?: string;
+  startTime?: string;
+  capacity?: string;
+  adultPrice?: string;
+  childPrice?: string;
+  infantPrice?: string;
+  form?: string;
+}
+
+function CreateSlotModal({
+  repository,
+  experiences,
+  selectedDate,
+  onClose,
+  onCreated,
+}: {
+  repository: AdminRepository;
+  experiences: Experience[];
+  selectedDate: Date;
+  onClose: () => void;
+  onCreated: (slot: Slot) => Promise<void>;
+}) {
+  const [experienceId, setExperienceId] = useState(experiences[0]?.id ?? '');
+  const [startTime, setStartTime] = useState('10:00');
+  const [capacity, setCapacity] = useState(20);
+  const [adultPrice, setAdultPrice] = useState('2000');
+  const [childPrice, setChildPrice] = useState('1200');
+  const [infantPrice, setInfantPrice] = useState('0');
+  const [note, setNote] = useState('');
+  const [errors, setErrors] = useState<CreateSlotErrors>({});
+  const [submitting, setSubmitting] = useState(false);
+  const submitLockRef = useRef(false);
+  const selectedDateLabel = new Intl.DateTimeFormat('ja-JP', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short',
+  }).format(selectedDate);
+
+  function validate(): { errors: CreateSlotErrors; startAt: Date | null } {
+    const nextErrors: CreateSlotErrors = {};
+    if (!experienceId) nextErrors.experienceId = '※体験種別を選択してください。';
+
+    const timeMatch = /^(\d{2}):(\d{2})$/.exec(startTime);
+    let startAt: Date | null = null;
+    if (!timeMatch) {
+      nextErrors.startTime = '※開始時間を入力してください。';
+    } else {
+      const hour = Number(timeMatch[1]);
+      const minute = Number(timeMatch[2]);
+      startAt = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), hour, minute, 0, 0);
+      if (startAt.getTime() <= Date.now() + 2 * 60 * 60 * 1000) {
+        nextErrors.startTime = '※受付時間を確保するため、現在から2時間より後の枠を指定してください。';
+      }
+    }
+
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 100) {
+      nextErrors.capacity = '※定員は1〜100名で入力してください。';
+    }
+
+    const priceFields = [
+      ['adultPrice', adultPrice, '大人料金'],
+      ['childPrice', childPrice, '子ども料金'],
+      ['infantPrice', infantPrice, '幼児料金'],
+    ] as const;
+    priceFields.forEach(([key, value, label]) => {
+      const numericValue = Number(value);
+      if (value.trim() === '' || !Number.isInteger(numericValue) || numericValue < 0) {
+        nextErrors[key] = `※${label}は0円以上の整数で入力してください。`;
+      }
+    });
+
+    return { errors: nextErrors, startAt };
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+    setSubmitting(true);
+    setErrors({});
+
+    const validation = validate();
+    if (Object.keys(validation.errors).length > 0 || !validation.startAt) {
+      setErrors(validation.errors);
+      submitLockRef.current = false;
+      setSubmitting(false);
+      return;
+    }
+
+    const experience = experiences.find((item) => item.id === experienceId);
+    if (!experience) {
+      setErrors({ experienceId: '※選択した体験が見つかりません。' });
+      submitLockRef.current = false;
+      setSubmitting(false);
+      return;
+    }
+
+    const startAt = validation.startAt;
+    const endAt = new Date(startAt.getTime() + experience.durationMinutes * 60 * 1000);
+    const bookingCloseAt = new Date(startAt.getTime() - 2 * 60 * 60 * 1000);
+    const cancellationDeadline = new Date(startAt.getTime() - 3 * 60 * 60 * 1000);
+
+    try {
+      const created = await repository.createSlot({
+        experienceId,
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+        capacity,
+        prices: {
+          adult: Number(adultPrice),
+          child: Number(childPrice),
+          infant: Number(infantPrice),
+        },
+        bookingOpenAt: new Date().toISOString(),
+        bookingCloseAt: bookingCloseAt.toISOString(),
+        cancellationDeadline: cancellationDeadline.toISOString(),
+        fewThreshold: Math.min(3, capacity),
+        publicationStatus: 'published',
+        manualStatus: 'normal',
+        note: note.trim(),
+      });
+      await onCreated(created);
+      onClose();
+    } catch (cause) {
+      setErrors({ form: cause instanceof Error ? cause.message : '開催枠を公開できませんでした。入力内容をご確認ください。' });
+      submitLockRef.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  const fieldClass = (hasError: boolean) => `min-h-12 w-full rounded-xl border-2 bg-white px-3 text-base font-bold text-admin-navy outline-none transition-colors focus:border-admin-green focus:ring-4 focus:ring-admin-green/15 ${hasError ? 'border-admin-red' : 'border-admin-green/20'}`;
+
+  return (
+    <HalfModal
+      title="開催枠を公開する"
+      description={`${selectedDateLabel}に新しい予約枠を追加します。公開後すぐに利用者カレンダーへ反映されます。`}
+      onClose={() => { if (!submitting) onClose(); }}
+    >
+      <form onSubmit={submit} noValidate className="space-y-6 px-5 py-6 sm:px-7">
+        <div className="rounded-2xl border border-admin-green/20 bg-admin-bg-secondary px-4 py-3">
+          <p className="text-[11px] font-black tracking-[0.14em] text-admin-green">PUBLISH DATE</p>
+          <p className="mt-1 text-base font-black text-admin-navy">{selectedDateLabel}</p>
+          <p className="mt-1 text-xs font-semibold text-admin-navy/65">日付を変更する場合は、一度閉じてカレンダーから別の日を選択してください。</p>
+        </div>
+
+        <label className="block">
+          <span className="mb-2 block text-sm font-black text-admin-navy">体験種別 <span className="text-admin-red">必須</span></span>
+          <select
+            value={experienceId}
+            onChange={(event) => { setExperienceId(event.target.value); setErrors((current) => ({ ...current, experienceId: undefined, form: undefined })); }}
+            className={fieldClass(Boolean(errors.experienceId))}
+            aria-invalid={Boolean(errors.experienceId)}
+            aria-describedby={errors.experienceId ? 'create-slot-experience-error' : undefined}
+          >
+            <option value="">体験を選択</option>
+            {experiences.map((experience) => <option key={experience.id} value={experience.id}>{experience.name}</option>)}
+          </select>
+          {errors.experienceId && <p id="create-slot-experience-error" className="mt-1.5 text-xs font-bold text-admin-red">{errors.experienceId}</p>}
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-sm font-black text-admin-navy">開始時間 <span className="text-admin-red">必須</span></span>
+          <input
+            type="time"
+            value={startTime}
+            onChange={(event) => { setStartTime(event.target.value); setErrors((current) => ({ ...current, startTime: undefined, form: undefined })); }}
+            className={fieldClass(Boolean(errors.startTime))}
+            aria-invalid={Boolean(errors.startTime)}
+            aria-describedby={errors.startTime ? 'create-slot-time-error' : undefined}
+          />
+          {errors.startTime && <p id="create-slot-time-error" className="mt-1.5 text-xs font-bold text-admin-red">{errors.startTime}</p>}
+        </label>
+
+        <fieldset>
+          <legend className="mb-2 text-sm font-black text-admin-navy">定員 <span className="text-admin-red">必須</span></legend>
+          <div className={`flex min-h-16 items-center justify-between rounded-2xl border-2 bg-white p-2 ${errors.capacity ? 'border-admin-red' : 'border-admin-green/20'}`}>
+            <button
+              type="button"
+              onClick={() => { setCapacity((value) => Math.max(0, value - 1)); setErrors((current) => ({ ...current, capacity: undefined, form: undefined })); }}
+              disabled={capacity <= 0 || submitting}
+              className="grid size-12 place-items-center rounded-xl border-2 border-admin-green/25 text-admin-navy hover:bg-admin-green hover:!text-white disabled:opacity-35 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy"
+              aria-label="定員を1名減らす"
+            >
+              <Minus aria-hidden="true" className="size-5" strokeWidth={3} />
+            </button>
+            <output className="text-center text-2xl font-black tabular-nums text-admin-navy" aria-label={`定員${capacity}名`}>{capacity}<span className="ml-1 text-sm">名</span></output>
+            <button
+              type="button"
+              onClick={() => { setCapacity((value) => Math.min(100, value + 1)); setErrors((current) => ({ ...current, capacity: undefined, form: undefined })); }}
+              disabled={capacity >= 100 || submitting}
+              className="grid size-12 place-items-center rounded-xl bg-admin-green !text-white hover:bg-admin-navy disabled:opacity-35 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy"
+              aria-label="定員を1名増やす"
+            >
+              <Plus aria-hidden="true" className="size-5" strokeWidth={3} />
+            </button>
+          </div>
+          {errors.capacity && <p className="mt-1.5 text-xs font-bold text-admin-red">{errors.capacity}</p>}
+        </fieldset>
+
+        <fieldset>
+          <legend className="mb-3 text-sm font-black text-admin-navy">年齢別料金 <span className="text-admin-red">必須</span></legend>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {([
+              ['大人', adultPrice, setAdultPrice, 'adultPrice'],
+              ['子ども', childPrice, setChildPrice, 'childPrice'],
+              ['幼児', infantPrice, setInfantPrice, 'infantPrice'],
+            ] as const).map(([label, value, setter, errorKey]) => (
+              <label key={errorKey} className="block">
+                <span className="mb-1.5 block text-xs font-black text-admin-navy">{label}</span>
+                <span className="relative block">
+                  <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm font-black text-admin-navy/55">¥</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    inputMode="numeric"
+                    value={value}
+                    onChange={(event) => { setter(event.target.value); setErrors((current) => ({ ...current, [errorKey]: undefined, form: undefined })); }}
+                    className={`${fieldClass(Boolean(errors[errorKey]))} pl-8`}
+                    aria-invalid={Boolean(errors[errorKey])}
+                  />
+                </span>
+                {errors[errorKey] && <p className="mt-1.5 text-xs font-bold leading-5 text-admin-red">{errors[errorKey]}</p>}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <label className="block">
+          <span className="mb-2 block text-sm font-black text-admin-navy">注意事項 <span className="font-semibold text-admin-navy/55">任意</span></span>
+          <textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            maxLength={200}
+            rows={4}
+            placeholder="例：汚れてもよい靴でお越しください。雨天時はハウス内で開催します。"
+            className="w-full rounded-xl border-2 border-admin-green/20 bg-white px-3 py-3 text-base font-semibold leading-6 text-admin-navy outline-none transition-colors focus:border-admin-green focus:ring-4 focus:ring-admin-green/15"
+          />
+          <span className="mt-1 block text-right text-[11px] font-semibold text-admin-navy/55">{note.length}/200</span>
+        </label>
+
+        {errors.form && (
+          <div role="alert" className="rounded-xl border border-admin-red/35 bg-admin-red/8 px-4 py-3 text-sm font-bold leading-6 text-admin-red">
+            {errors.form}
+          </div>
+        )}
+
+        <div className="sticky bottom-0 -mx-5 border-t border-admin-green/15 bg-admin-bg-primary/95 px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-4 backdrop-blur-md sm:-mx-7 sm:px-7">
+          <button
+            type="submit"
+            disabled={submitting}
+            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-admin-green px-5 text-sm font-black !text-white shadow-[0_12px_28px_rgba(67,110,79,0.28)] hover:bg-admin-navy disabled:cursor-wait disabled:bg-admin-navy/55 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-red/45"
+          >
+            {submitting ? <LoaderCircle aria-hidden="true" className="size-5 animate-spin" /> : <Plus aria-hidden="true" className="size-5" />}
+            {submitting ? '公開処理中...' : 'この内容で公開する'}
+          </button>
+        </div>
+      </form>
+    </HalfModal>
   );
 }
 
@@ -663,6 +932,7 @@ function SlotCalendar({
   onMonthChange,
   onDateSelect,
   onToggleSlot,
+  onCreateSlot,
   busySlotId,
 }: {
   slots: CalendarSlot[];
@@ -671,6 +941,7 @@ function SlotCalendar({
   onMonthChange: (month: Date) => void;
   onDateSelect: (date: Date) => void;
   onToggleSlot: (slot: CalendarSlot) => Promise<void>;
+  onCreateSlot: () => void;
   busySlotId: string;
 }) {
   const monthRows = useMemo(() => buildMonthGrid(currentMonth), [currentMonth]);
@@ -698,29 +969,42 @@ function SlotCalendar({
   return (
     <div className="space-y-6">
       <section aria-labelledby="slot-calendar-title" className="overflow-hidden rounded-3xl border border-admin-green/20 bg-white/75 shadow-[0_18px_55px_rgba(30,50,80,0.08)]">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-admin-green/15 bg-admin-bg-secondary/65 px-4 py-4 sm:px-6">
-          <button
-            type="button"
-            onClick={() => changeMonth(-1)}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-xl border border-admin-green/25 bg-white px-3 text-sm font-black text-admin-navy transition-colors hover:bg-admin-green hover:text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy"
-            aria-label={`${new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long' }).format(moveMonth(currentMonth, -1))}へ移動`}
-          >
-            <ChevronLeft aria-hidden="true" className="size-4" />
-            <span className="hidden sm:inline">前月</span>
-          </button>
-          <div className="text-center">
-            <p className="text-[11px] font-black tracking-[0.18em] text-admin-green">MONTHLY SCHEDULE</p>
-            <h2 id="slot-calendar-title" className="font-admin-sans mt-1 text-xl font-black text-admin-navy sm:text-2xl">{monthLabel}</h2>
+        <div className="border-b border-admin-green/15 bg-admin-bg-secondary/65 px-4 py-4 sm:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-black tracking-[0.18em] text-admin-green">MONTHLY SCHEDULE</p>
+              <h2 id="slot-calendar-title" className="font-admin-sans mt-1 text-xl font-black text-admin-navy sm:text-2xl">{monthLabel}</h2>
+            </div>
+            <button
+              type="button"
+              onClick={onCreateSlot}
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-admin-green px-5 text-sm font-black !text-white shadow-[0_10px_24px_rgba(67,110,79,0.24)] transition-colors hover:bg-admin-navy focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-red/45 sm:w-auto"
+            >
+              <Plus aria-hidden="true" className="size-5" />
+              開催枠を公開する
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => changeMonth(1)}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-xl border border-admin-green/25 bg-white px-3 text-sm font-black text-admin-navy transition-colors hover:bg-admin-green hover:text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy"
-            aria-label={`${new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long' }).format(moveMonth(currentMonth, 1))}へ移動`}
-          >
-            <span className="hidden sm:inline">翌月</span>
-            <ChevronRight aria-hidden="true" className="size-4" />
-          </button>
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => changeMonth(-1)}
+              className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-xl border border-admin-green/25 bg-white px-3 text-sm font-black text-admin-navy transition-colors hover:bg-admin-green hover:!text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy"
+              aria-label={`${new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long' }).format(moveMonth(currentMonth, -1))}へ移動`}
+            >
+              <ChevronLeft aria-hidden="true" className="size-4" />
+              <span>前月</span>
+            </button>
+            <p className="text-sm font-black tabular-nums text-admin-navy">{monthLabel}</p>
+            <button
+              type="button"
+              onClick={() => changeMonth(1)}
+              className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-xl border border-admin-green/25 bg-white px-3 text-sm font-black text-admin-navy transition-colors hover:bg-admin-green hover:!text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy"
+              aria-label={`${new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long' }).format(moveMonth(currentMonth, 1))}へ移動`}
+            >
+              <span>翌月</span>
+              <ChevronRight aria-hidden="true" className="size-4" />
+            </button>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -806,10 +1090,21 @@ function SlotCalendar({
         </div>
 
         {selectedSlots.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-admin-green/30 bg-white/55 px-5 py-10 text-center">
-            <CalendarDays aria-hidden="true" className="mx-auto size-8 text-admin-green" />
-            <p className="mt-3 text-sm font-black text-admin-navy">この日の開催枠はありません</p>
-            <p className="mt-1 text-xs font-semibold text-admin-navy">別の日付を選ぶか、翌月の予定を確認してください。</p>
+          <div className="relative overflow-hidden rounded-2xl border border-dashed border-admin-green/30 bg-white/55 px-5 py-10 text-center">
+            <span aria-hidden="true" className="absolute -right-6 -top-8 text-[5rem] opacity-[0.06]">🌱</span>
+            <span className="mx-auto grid size-14 place-items-center rounded-full bg-admin-green/10 text-admin-green">
+              <Leaf aria-hidden="true" className="size-7" />
+            </span>
+            <p className="mt-4 text-sm font-black text-admin-navy">この日の開催枠は登録されていません。</p>
+            <p className="mx-auto mt-2 max-w-md text-xs font-semibold leading-6 text-admin-navy/70">右上の「開催枠を公開する」ボタンから、最初の枠を作ってみましょう！🌱</p>
+            <button
+              type="button"
+              onClick={onCreateSlot}
+              className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border-2 border-admin-green bg-white px-4 text-sm font-black text-admin-green hover:bg-admin-green hover:!text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy"
+            >
+              <Plus aria-hidden="true" className="size-4" />
+              この日に枠を公開する
+            </button>
           </div>
         ) : (
           <div className="grid gap-3 lg:grid-cols-2">
@@ -830,6 +1125,11 @@ function SlotCalendar({
                     <div><dt className="text-[10px] font-bold text-admin-navy">予約</dt><dd className="mt-1 text-lg font-black text-admin-navy">{slot.bookedPeople}名</dd></div>
                     <div><dt className="text-[10px] font-bold text-admin-navy">定員</dt><dd className="mt-1 text-lg font-black text-admin-navy">{slot.capacity}名</dd></div>
                     <div><dt className="text-[10px] font-bold text-admin-navy">残席</dt><dd className="mt-1 text-lg font-black text-admin-green">{slot.remaining}席</dd></div>
+                  </dl>
+                  <dl className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-admin-bg-secondary p-3 text-center">
+                    <div><dt className="text-[10px] font-bold text-admin-navy/65">大人</dt><dd className="mt-1 text-sm font-black text-admin-navy">{formatYen(slot.prices.adult)}</dd></div>
+                    <div><dt className="text-[10px] font-bold text-admin-navy/65">子ども</dt><dd className="mt-1 text-sm font-black text-admin-navy">{formatYen(slot.prices.child)}</dd></div>
+                    <div><dt className="text-[10px] font-bold text-admin-navy/65">幼児</dt><dd className="mt-1 text-sm font-black text-admin-navy">{formatYen(slot.prices.infant)}</dd></div>
                   </dl>
                   <p className="mt-4 text-xs font-semibold leading-6 text-admin-navy">{slot.note || '当日の運営状況を確認して受付してください。'}</p>
                   <div className="mt-4 border-t border-admin-green/10 pt-4">
@@ -1074,10 +1374,12 @@ function TodayDashboard({ dashboard, bookings, slots, onAddBooking, onBulkCancel
 export default function NewAdminShell({ repository, revision, onChanged }: { repository: AdminRepository; revision: number; onChanged: () => void }) {
   const [activeTab, setActiveTab] = useState<AdminTabId>('today');
   const [currentMonth, setCurrentMonth] = useState(() => new Date(2026, 6, 1));
-  const [selectedDate, setSelectedDate] = useState(() => new Date(2026, 6, 1));
+  const [selectedDate, setSelectedDate] = useState(() => new Date(2026, 6, 16));
   const [phoneBookingOpen, setPhoneBookingOpen] = useState(false);
+  const [createSlotOpen, setCreateSlotOpen] = useState(false);
   const [bulkCancellationOpen, setBulkCancellationOpen] = useState(false);
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
+  const [experiences, setExperiences] = useState<Experience[]>([]);
   const [slots, setSlots] = useState<CalendarSlot[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
@@ -1090,8 +1392,9 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
   const cancellationSlot = dashboard?.todaySlots.find((slot) => slot.manualStatus !== 'cancelled');
 
   async function load() {
-    const [nextDashboard, nextSlots, nextBookings, nextWaitlist, nextNotifications, nextLogs] = await Promise.all([
+    const [nextDashboard, nextExperiences, nextSlots, nextBookings, nextWaitlist, nextNotifications, nextLogs] = await Promise.all([
       repository.getDashboard(),
+      repository.listExperiences(),
       repository.listSlots(),
       repository.listBookings(),
       repository.listWaitlistEntries(),
@@ -1099,6 +1402,7 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
       repository.listAuditLogs(),
     ]);
     setDashboard(nextDashboard);
+    setExperiences(nextExperiences);
     setSlots(nextSlots);
     setBookings(nextBookings);
     setWaitlist(nextWaitlist);
@@ -1175,6 +1479,13 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
     } finally {
       setBusySlotId('');
     }
+  }
+
+  async function handleSlotCreated(slot: Slot): Promise<void> {
+    const experience = experiences.find((item) => item.id === slot.experienceId);
+    onChanged();
+    await load();
+    setStatusMessage(`${formatDay(slot.startAt)} ${formatTime(slot.startAt)} ${experience?.name ?? '収穫体験'}を定員${slot.capacity}名で公開しました。利用者カレンダーへ反映されています。`);
   }
 
   if (!dashboard) return <div className="grid min-h-dvh place-items-center bg-admin-bg-primary font-admin-sans font-bold text-admin-green">管理画面を準備しています…</div>;
@@ -1298,6 +1609,7 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
               onMonthChange={setCurrentMonth}
               onDateSelect={setSelectedDate}
               onToggleSlot={handleSlotReceptionToggle}
+              onCreateSlot={() => setCreateSlotOpen(true)}
               busySlotId={busySlotId}
             />
           ) : activeTab === 'guests' ? (
@@ -1378,6 +1690,15 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
           slots={slots}
           onClose={() => setPhoneBookingOpen(false)}
           onSaved={handleBookingSaved}
+        />
+      )}
+      {createSlotOpen && (
+        <CreateSlotModal
+          repository={repository}
+          experiences={experiences}
+          selectedDate={selectedDate}
+          onClose={() => setCreateSlotOpen(false)}
+          onCreated={handleSlotCreated}
         />
       )}
       {bulkCancellationOpen && cancellationSlot && (
