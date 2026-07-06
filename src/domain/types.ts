@@ -123,6 +123,7 @@ export interface NotificationJob {
   status: NotificationStatus;
   attempts: number;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface AuditLog {

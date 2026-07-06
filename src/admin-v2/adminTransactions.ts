@@ -4,7 +4,7 @@ export const NOTIFICATION_QUEUE_KEY = 'adminV2NotificationQueue';
 export const BULK_CANCELLATIONS_KEY = 'adminV2BulkCancellations';
 export const ADMIN_AUDIT_UPDATED_EVENT = 'admin-v2-audit-updated';
 const DEMO_PHONE_CONTACT = {
-  name: 'デモ電話予約者',
+  name: 'デモ利用者',
   phone: '000-0000-0000',
   email: 'demo@example.invalid',
 };
@@ -118,7 +118,9 @@ export function createPhoneBooking(
   assertPhoneBooking(draft);
   const email = draft.email?.trim() ?? '';
   const booking: SavedPhoneBooking = {
-    ...draft,
+    date: draft.date,
+    slotId: draft.slotId,
+    slotLabel: draft.slotLabel,
     name: DEMO_PHONE_CONTACT.name,
     phone: DEMO_PHONE_CONTACT.phone,
     email: email ? DEMO_PHONE_CONTACT.email : '',

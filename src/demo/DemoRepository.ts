@@ -497,7 +497,12 @@ export class DemoRepository implements PublicRepository, BookingRepository, Admi
   async processNotifications(): Promise<NotificationJob[]> {
     const state = readDemoState();
     const processed = state.notificationJobs.filter((job) => job.status === 'queued').slice(0, 20);
-    processed.forEach((job) => { job.status = 'sent'; job.attempts += 1; });
+    const attemptedAt = new Date().toISOString();
+    processed.forEach((job) => {
+      job.status = 'sent';
+      job.attempts += 1;
+      job.updatedAt = attemptedAt;
+    });
     if (processed.length) writeDemoState(state);
     return processed;
   }
@@ -509,7 +514,8 @@ export class DemoRepository implements PublicRepository, BookingRepository, Admi
     if (job.status !== 'failed') throw new Error('再送できるのは送信失敗の通知だけです。');
     job.status = 'sent';
     job.attempts += 1;
-    this.addAudit(state, { actor: 'demoAdmin', action: 'NOTIFICATION_RETRIED', targetType: 'notification', targetId: job.id, summary: '通知をデモ再送しました。' });
+    job.updatedAt = new Date().toISOString();
+    this.addAudit(state, { actor: 'demoAdmin', action: 'RETRY_NOTIFICATION', targetType: 'notification', targetId: job.id, summary: '通知を再送し、送信完了へ更新しました。' });
     writeDemoState(state);
     return job;
   }

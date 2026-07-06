@@ -112,6 +112,31 @@ function formatYen(value: number): string {
   return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(value);
 }
 
+function formatJstDateTime(iso: string): string {
+  return new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(iso));
+}
+
+function notificationTypeLabel(type: NotificationJob['type']): string {
+  switch (type) {
+    case 'bookingAccepted':
+      return '予約完了通知';
+    case 'guestCanceled':
+      return '予約キャンセル通知';
+    case 'waitlistPromoted':
+      return 'キャンセル待ち繰り上げ通知';
+    case 'slotCanceled':
+      return '一括開催中止通知';
+  }
+}
+
 function slotStatusMeta(status: CalendarSlot['displayStatus']): { label: string; dotClass: string; badgeClass: string } {
   switch (status) {
     case 'available':
@@ -883,16 +908,179 @@ function BookingCard({ booking, slot }: { booking: Booking; slot?: CalendarSlot 
   );
 }
 
-function GuestList({ bookings, slots }: { bookings: Booking[]; slots: CalendarSlot[] }) {
+function GuestList({
+  bookings,
+  slots,
+  waitlist,
+  busyWaitlistId,
+  onPromoteWaitlist,
+}: {
+  bookings: Booking[];
+  slots: CalendarSlot[];
+  waitlist: WaitlistEntry[];
+  busyWaitlistId: string;
+  onPromoteWaitlist: (entry: WaitlistEntry) => Promise<void>;
+}) {
   const slotMap = new Map(slots.map((slot) => [slot.id, slot]));
   const activeBookings = bookings.filter((booking) => booking.status === 'confirmed' || booking.status === 'checkedIn');
+  const waitingEntries = waitlist.filter((entry) => entry.status === 'waiting');
   return (
-    <section aria-labelledby="guest-list-title">
-      <div className="mb-4 flex items-end justify-between gap-4">
-        <h2 id="guest-list-title" className="font-admin-sans text-xl font-black text-admin-navy sm:text-2xl">予約者一覧</h2>
-        <p className="rounded-full bg-admin-bg-secondary px-3 py-2 text-xs font-extrabold text-admin-green">{activeBookings.length}件</p>
+    <div className="space-y-10">
+      <section aria-labelledby="guest-list-title">
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <h2 id="guest-list-title" className="font-admin-sans text-xl font-black text-admin-navy sm:text-2xl">予約者一覧</h2>
+          <p className="rounded-full bg-admin-bg-secondary px-3 py-2 text-xs font-extrabold text-admin-green">{activeBookings.length}件</p>
+        </div>
+        {activeBookings.length > 0 ? (
+          <div className="grid gap-3 lg:grid-cols-2">{activeBookings.map((booking) => <BookingCard key={booking.id} booking={booking} slot={slotMap.get(booking.slotId)} />)}</div>
+        ) : (
+          <p className="rounded-2xl border border-admin-green/15 bg-white/75 px-5 py-8 text-center text-sm font-bold text-admin-navy/60">現在、確定中の予約はありません。</p>
+        )}
+      </section>
+
+      <section aria-labelledby="waitlist-title" className="border-t border-admin-green/20 pt-8">
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-black tracking-[0.16em] text-admin-red">WAITLIST</p>
+            <h2 id="waitlist-title" className="font-admin-sans mt-1 text-xl font-black text-admin-navy sm:text-2xl">キャンセル待ち</h2>
+            <p className="mt-2 text-sm font-semibold leading-6 text-admin-navy/60">空席を確認して、安全に予約へ繰り上げます。</p>
+          </div>
+          <p className="rounded-full bg-admin-red/10 px-3 py-2 text-xs font-extrabold text-admin-red">{waitingEntries.length}組</p>
+        </div>
+
+        {waitingEntries.length === 0 ? (
+          <div className="rounded-2xl border border-admin-green/15 bg-white/75 px-5 py-9 text-center">
+            <TicketCheck aria-hidden="true" className="mx-auto size-8 text-admin-green" />
+            <p className="mt-3 text-sm font-black text-admin-navy">現在、繰り上げ対応が必要な待機者はいません。</p>
+          </div>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-2" aria-live="polite">
+            {waitingEntries.map((entry) => {
+              const slot = slotMap.get(entry.slotId);
+              const remaining = slot?.remaining ?? 0;
+              const enoughSeats = Boolean(slot) && remaining >= entry.totalPeople;
+              const slotAcceptsPromotion = slot?.publicationStatus === 'published'
+                && (slot.displayStatus === 'available' || slot.displayStatus === 'few');
+              const canPromote = enoughSeats && slotAcceptsPromotion;
+              const isBusy = busyWaitlistId === entry.id;
+              return (
+                <article key={entry.id} className="rounded-2xl border border-admin-red/20 bg-white/80 p-5 shadow-[0_12px_32px_rgba(30,50,80,0.07)]">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-black text-admin-red">待機番号 {entry.queueNumber}</p>
+                      <h3 className="font-admin-sans mt-1 text-lg font-black text-admin-navy">{entry.contact.name}</h3>
+                    </div>
+                    <span className="rounded-full bg-admin-bg-secondary px-3 py-1.5 text-xs font-black text-admin-navy">{entry.totalPeople}名</span>
+                  </div>
+                  <dl className="mt-4 grid gap-2 rounded-xl bg-admin-bg-primary p-4 text-sm">
+                    <div className="flex justify-between gap-4"><dt className="font-bold text-admin-navy/60">開催枠</dt><dd className="text-right font-black text-admin-navy">{slot ? `${formatDay(slot.startAt)} ${formatTime(slot.startAt)} ${slot.experience.name}` : '開催枠なし'}</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="font-bold text-admin-navy/60">人数内訳</dt><dd className="text-right font-black text-admin-navy">大人 {entry.party.adults}名・子ども {entry.party.children}名・幼児 {entry.party.infants}名</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="font-bold text-admin-navy/60">現在の残席</dt><dd className={`text-right font-black ${enoughSeats ? 'text-admin-green' : 'text-admin-red'}`}>{slot ? `${remaining}席` : '確認不可'}</dd></div>
+                  </dl>
+                  {!enoughSeats && slot && (
+                    <p id={`waitlist-error-${entry.id}`} className="mt-3 text-sm font-bold leading-6 text-admin-red">
+                      ※残席不足のため繰り上げ不可（残り{remaining}席 / 待機グループ{entry.totalPeople}名）
+                    </p>
+                  )}
+                  {enoughSeats && !slotAcceptsPromotion && (
+                    <p id={`waitlist-error-${entry.id}`} className="mt-3 text-sm font-bold leading-6 text-admin-red">※この開催枠は現在受付中ではないため、繰り上げできません。</p>
+                  )}
+                  {!slot && (
+                    <p id={`waitlist-error-${entry.id}`} className="mt-3 text-sm font-bold leading-6 text-admin-red">※開催枠を確認できないため、繰り上げできません。</p>
+                  )}
+                  <button
+                    type="button"
+                    disabled={!canPromote || isBusy}
+                    aria-describedby={!canPromote ? `waitlist-error-${entry.id}` : undefined}
+                    onClick={() => void onPromoteWaitlist(entry)}
+                    className="mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-admin-green px-4 text-sm font-black !text-white transition-colors hover:bg-admin-navy disabled:cursor-not-allowed disabled:bg-[#737B76] disabled:!text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-red/45"
+                  >
+                    {isBusy ? <LoaderCircle aria-hidden="true" className="size-5 animate-spin" /> : <TicketCheck aria-hidden="true" className="size-5" />}
+                    {isBusy ? '繰り上げ処理中…' : '予約へ繰り上げる'}
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function NotificationPanel({
+  notifications,
+  busyNotificationId,
+  onRetry,
+}: {
+  notifications: NotificationJob[];
+  busyNotificationId: string;
+  onRetry: (job: NotificationJob) => Promise<void>;
+}) {
+  const orderedNotifications = [...notifications].sort((left, right) => {
+    if (left.status === 'failed' && right.status !== 'failed') return -1;
+    if (right.status === 'failed' && left.status !== 'failed') return 1;
+    return (right.updatedAt ?? right.createdAt).localeCompare(left.updatedAt ?? left.createdAt);
+  });
+
+  return (
+    <section aria-labelledby="notification-list-title">
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 id="notification-list-title" className="font-admin-sans text-xl font-black text-admin-navy sm:text-2xl">通知送信履歴</h2>
+          <p className="mt-2 text-sm font-semibold leading-6 text-admin-navy/60">失敗した通知だけを再送できます。表示する宛先はデモ用固定値です。</p>
+        </div>
+        <p className="rounded-full bg-admin-bg-secondary px-3 py-2 text-xs font-extrabold text-admin-green">全{orderedNotifications.length}件</p>
       </div>
-      <div className="grid gap-3 lg:grid-cols-2">{activeBookings.map((booking) => <BookingCard key={booking.id} booking={booking} slot={slotMap.get(booking.slotId)} />)}</div>
+
+      {orderedNotifications.length === 0 ? (
+        <div className="rounded-2xl border border-admin-green/15 bg-white/75 px-5 py-10 text-center">
+          <Mail aria-hidden="true" className="mx-auto size-9 text-admin-green" />
+          <p className="mt-3 text-sm font-black text-admin-navy">通知履歴はまだありません。</p>
+        </div>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2" aria-live="polite">
+          {orderedNotifications.map((job) => {
+            const isFailed = job.status === 'failed';
+            const isBusy = busyNotificationId === job.id;
+            const statusLabel = isFailed ? '送信失敗（デモ）' : job.status === 'sent' ? '送信完了' : '送信待ち（デモ）';
+            return (
+              <article key={job.id} className={`rounded-2xl border bg-white/80 p-5 shadow-[0_12px_32px_rgba(30,50,80,0.07)] ${isFailed ? 'border-admin-red/45' : 'border-admin-green/15'}`}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className={`grid size-11 shrink-0 place-items-center rounded-full ${isFailed ? 'bg-admin-red text-white' : 'bg-admin-bg-secondary text-admin-green'}`}>
+                      {isFailed ? <AlertTriangle aria-hidden="true" className="size-5" /> : <Mail aria-hidden="true" className="size-5" />}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-black tracking-[0.08em] text-admin-green">{notificationTypeLabel(job.type)}</p>
+                      <h3 className="mt-1 text-base font-black leading-6 text-admin-navy">{job.subject}</h3>
+                    </div>
+                  </div>
+                  <span className={`rounded-full px-3 py-1.5 text-xs font-black ${isFailed ? 'bg-admin-red text-white' : job.status === 'sent' ? 'bg-admin-bg-primary text-black' : 'bg-[#F7DFC0] text-[#713B00]'}`}>{statusLabel}</span>
+                </div>
+
+                <dl className="mt-5 grid gap-3 border-t border-admin-green/10 pt-4 text-sm">
+                  <div className="grid gap-1 sm:grid-cols-[7rem_minmax(0,1fr)]"><dt className="font-bold text-admin-navy/55">通知種別</dt><dd className="font-black text-admin-navy">{notificationTypeLabel(job.type)}</dd></div>
+                  <div className="grid gap-1 sm:grid-cols-[7rem_minmax(0,1fr)]"><dt className="font-bold text-admin-navy/55">宛先</dt><dd className="break-all font-black text-admin-navy">demo@example.invalid</dd></div>
+                  <div className="grid gap-1 sm:grid-cols-[7rem_minmax(0,1fr)]"><dt className="font-bold text-admin-navy/55">最終試行日時</dt><dd className="font-black text-admin-navy"><time dateTime={job.updatedAt ?? job.createdAt}>{formatJstDateTime(job.updatedAt ?? job.createdAt)} JST</time></dd></div>
+                </dl>
+
+                {isFailed && (
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => void onRetry(job)}
+                    className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border-2 border-admin-red bg-white px-4 text-sm font-black !text-admin-red transition-colors hover:bg-admin-red hover:!text-white disabled:cursor-wait disabled:opacity-55 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-red/40"
+                  >
+                    {isBusy ? <LoaderCircle aria-hidden="true" className="size-5 animate-spin" /> : <AlertTriangle aria-hidden="true" className="size-5" />}
+                    {isBusy ? '再送信中…' : '再送信する'}
+                  </button>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
@@ -1387,6 +1575,8 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [statusMessage, setStatusMessage] = useState('');
   const [busySlotId, setBusySlotId] = useState('');
+  const [busyWaitlistId, setBusyWaitlistId] = useState('');
+  const [busyNotificationId, setBusyNotificationId] = useState('');
   const currentTab = ADMIN_TABS.find((tab) => tab.id === activeTab) ?? ADMIN_TABS[0];
   const ActiveIcon = currentTab.icon;
   const cancellationSlot = dashboard?.todaySlots.find((slot) => slot.manualStatus !== 'cancelled');
@@ -1486,6 +1676,39 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
     onChanged();
     await load();
     setStatusMessage(`${formatDay(slot.startAt)} ${formatTime(slot.startAt)} ${experience?.name ?? '収穫体験'}を定員${slot.capacity}名で公開しました。利用者カレンダーへ反映されています。`);
+  }
+
+  async function handlePromoteWaitlist(entry: WaitlistEntry): Promise<void> {
+    const slot = slots.find((item) => item.id === entry.slotId);
+    if (!slot || slot.remaining < entry.totalPeople) {
+      setStatusMessage('残席が不足しているため、待機グループを繰り上げできませんでした。');
+      return;
+    }
+    setBusyWaitlistId(entry.id);
+    try {
+      await repository.promoteWaitlist(entry.id);
+      onChanged();
+      await load();
+      setStatusMessage(`${entry.contact.name}さんの待機グループ${entry.totalPeople}名を予約へ繰り上げ、残席を更新しました。`);
+    } catch (cause) {
+      window.alert(cause instanceof Error ? cause.message : '待機グループを予約へ繰り上げできませんでした。');
+    } finally {
+      setBusyWaitlistId('');
+    }
+  }
+
+  async function handleRetryNotification(job: NotificationJob): Promise<void> {
+    setBusyNotificationId(job.id);
+    try {
+      await repository.retryNotification(job.id);
+      onChanged();
+      await load();
+      setStatusMessage(`${notificationTypeLabel(job.type)}を再送し、送信完了へ更新しました。通知失敗件数にも反映されています。`);
+    } catch (cause) {
+      window.alert(cause instanceof Error ? cause.message : '通知を再送できませんでした。');
+    } finally {
+      setBusyNotificationId('');
+    }
   }
 
   if (!dashboard) return <div className="grid min-h-dvh place-items-center bg-admin-bg-primary font-admin-sans font-bold text-admin-green">管理画面を準備しています…</div>;
@@ -1613,7 +1836,19 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
               busySlotId={busySlotId}
             />
           ) : activeTab === 'guests' ? (
-            <GuestList bookings={bookings} slots={slots} />
+            <GuestList
+              bookings={bookings}
+              slots={slots}
+              waitlist={waitlist}
+              busyWaitlistId={busyWaitlistId}
+              onPromoteWaitlist={handlePromoteWaitlist}
+            />
+          ) : activeTab === 'notifications' ? (
+            <NotificationPanel
+              notifications={notifications}
+              busyNotificationId={busyNotificationId}
+              onRetry={handleRetryNotification}
+            />
           ) : activeTab === 'history' ? (
             <AuditHistoryPanel logs={auditLogs} />
           ) : (

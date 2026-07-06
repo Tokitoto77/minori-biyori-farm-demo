@@ -55,7 +55,7 @@ test('メールがある電話予約だけ通知待ちへ追加する', () => {
   }, now, ids());
 
   assert.equal(booking.notification, 'queued');
-  assert.equal(booking.name, 'デモ電話予約者');
+  assert.equal(booking.name, 'デモ利用者');
   assert.equal(booking.phone, '000-0000-0000');
   assert.equal(booking.email, 'demo@example.invalid');
   assert.equal((storage.getItem(PHONE_BOOKINGS_KEY) ?? '').includes('佐藤 健'), false);
@@ -63,6 +63,31 @@ test('メールがある電話予約だけ通知待ちへ追加する', () => {
   assert.equal((storage.getItem(PHONE_BOOKINGS_KEY) ?? '').includes('guest@example.com'), false);
   assert.equal(JSON.parse(storage.getItem(NOTIFICATION_QUEUE_KEY) ?? '[]').length, 1);
   assert.deepEqual(readAdminAuditLogs(storage).map((log) => log.action), ['notification.queued', 'phoneBooking.created']);
+});
+
+test('電話予約は列挙した安全な項目だけを保存し、将来追加されたPIIを引き継がない', () => {
+  const storage = new MemoryStorage();
+  const draft = {
+    date: '2030-08-01',
+    slotId: 'slot-15',
+    slotLabel: '15:00〜16:30',
+    name: '実在 利用者',
+    phone: '090-9999-8888',
+    email: 'real-person@example.com',
+    futureSensitiveField: '保存禁止の追加PII',
+  };
+
+  createPhoneBooking(storage, draft, now, ids());
+
+  const serialized = storage.getItem(PHONE_BOOKINGS_KEY) ?? '';
+  const [saved] = JSON.parse(serialized) as Array<Record<string, unknown>>;
+  assert.deepEqual(Object.keys(saved).sort(), [
+    'createdAt', 'date', 'email', 'id', 'name', 'notification', 'phone', 'slotId', 'slotLabel', 'source', 'status',
+  ].sort());
+  assert.equal(serialized.includes('実在 利用者'), false);
+  assert.equal(serialized.includes('090-9999-8888'), false);
+  assert.equal(serialized.includes('real-person@example.com'), false);
+  assert.equal(serialized.includes('保存禁止の追加PII'), false);
 });
 
 test('一括中止は影響件数と利用者数を監査ログへ残す', () => {
