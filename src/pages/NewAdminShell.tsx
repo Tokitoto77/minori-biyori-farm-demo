@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -16,7 +17,9 @@ import {
   Leaf,
   Mail,
   Minus,
+  Pause,
   Phone,
+  Play,
   Plus,
   RotateCcw,
   ShieldAlert,
@@ -625,18 +628,50 @@ function GuestList({ bookings, slots }: { bookings: Booking[]; slots: CalendarSl
   );
 }
 
+function SlotReceptionToggle({ slot, busy, onToggle }: { slot: CalendarSlot; busy: boolean; onToggle: (slot: CalendarSlot) => Promise<void> }) {
+  if (slot.manualStatus !== 'normal' && slot.manualStatus !== 'paused') {
+    return (
+      <p className="rounded-xl bg-admin-bg-secondary px-4 py-3 text-xs font-bold leading-5 text-admin-navy">
+        {slot.manualStatus === 'cancelled' ? '開催中止済みのため、受付の再開はできません。' : '生育調整を解除すると、受付の開閉を操作できます。'}
+      </p>
+    );
+  }
+
+  const isPaused = slot.manualStatus === 'paused';
+  return (
+    <button
+      type="button"
+      onClick={() => void onToggle(slot)}
+      disabled={busy}
+      aria-label={`${formatDay(slot.startAt)} ${formatTime(slot.startAt)} ${slot.experience.name}を${isPaused ? '通常受付に戻す' : '受付一時停止にする'}`}
+      className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-black transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-navy disabled:cursor-wait disabled:opacity-55 ${
+        isPaused
+          ? 'bg-admin-green !text-white hover:bg-admin-navy'
+          : 'border-2 border-admin-red/70 bg-white !text-admin-red hover:bg-admin-red hover:!text-white'
+      }`}
+    >
+      {isPaused ? <Play aria-hidden="true" className="size-5" /> : <Pause aria-hidden="true" className="size-5" />}
+      {busy ? '状態を更新中…' : isPaused ? '通常受付に戻す（開ける）' : '受付一時停止（閉める）'}
+    </button>
+  );
+}
+
 function SlotCalendar({
   slots,
   currentMonth,
   selectedDate,
   onMonthChange,
   onDateSelect,
+  onToggleSlot,
+  busySlotId,
 }: {
   slots: CalendarSlot[];
   currentMonth: Date;
   selectedDate: Date;
   onMonthChange: (month: Date) => void;
   onDateSelect: (date: Date) => void;
+  onToggleSlot: (slot: CalendarSlot) => Promise<void>;
+  busySlotId: string;
 }) {
   const monthRows = useMemo(() => buildMonthGrid(currentMonth), [currentMonth]);
   const slotsByDate = useMemo(() => {
@@ -797,6 +832,9 @@ function SlotCalendar({
                     <div><dt className="text-[10px] font-bold text-admin-navy">残席</dt><dd className="mt-1 text-lg font-black text-admin-green">{slot.remaining}席</dd></div>
                   </dl>
                   <p className="mt-4 text-xs font-semibold leading-6 text-admin-navy">{slot.note || '当日の運営状況を確認して受付してください。'}</p>
+                  <div className="mt-4 border-t border-admin-green/10 pt-4">
+                    <SlotReceptionToggle slot={slot} busy={busySlotId === slot.id} onToggle={onToggleSlot} />
+                  </div>
                 </article>
               );
             })}
@@ -807,7 +845,7 @@ function SlotCalendar({
   );
 }
 
-function TodayDashboard({ dashboard, bookings, slots, onAddBooking, onBulkCancellation, onCancelBooking, onCheckInBooking }: { dashboard: DashboardSummary; bookings: Booking[]; slots: CalendarSlot[]; onAddBooking: () => void; onBulkCancellation: () => void; onCancelBooking: (booking: Booking) => Promise<boolean>; onCheckInBooking: (booking: Booking) => Promise<boolean> }) {
+function TodayDashboard({ dashboard, bookings, slots, onAddBooking, onBulkCancellation, onCancelBooking, onCheckInBooking, onToggleSlot, busySlotId }: { dashboard: DashboardSummary; bookings: Booking[]; slots: CalendarSlot[]; onAddBooking: () => void; onBulkCancellation: () => void; onCancelBooking: (booking: Booking) => Promise<boolean>; onCheckInBooking: (booking: Booking) => Promise<boolean>; onToggleSlot: (slot: CalendarSlot) => Promise<void>; busySlotId: string }) {
   const [expandedSlotId, setExpandedSlotId] = useState<string | null>(dashboard.todaySlots[0]?.id ?? null);
   const [cancelingBookingId, setCancelingBookingId] = useState('');
   const [checkingInBookingId, setCheckingInBookingId] = useState('');
@@ -896,6 +934,10 @@ function TodayDashboard({ dashboard, bookings, slots, onAddBooking, onBulkCancel
                   </span>
                   <ChevronRight aria-hidden="true" className={`size-5 text-admin-green transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
                 </button>
+
+                <div className="border-t border-admin-green/10 bg-white px-4 py-3 sm:px-5">
+                  <SlotReceptionToggle slot={slot} busy={busySlotId === slot.id} onToggle={onToggleSlot} />
+                </div>
 
                 {isExpanded && (
                   <div id={`slot-guests-${slot.id}`} className="border-t border-admin-green/15 bg-admin-bg-primary px-4 py-4 sm:px-5 sm:py-5">
@@ -1042,6 +1084,7 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
   const [notifications, setNotifications] = useState<NotificationJob[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [statusMessage, setStatusMessage] = useState('');
+  const [busySlotId, setBusySlotId] = useState('');
   const currentTab = ADMIN_TABS.find((tab) => tab.id === activeTab) ?? ADMIN_TABS[0];
   const ActiveIcon = currentTab.icon;
   const cancellationSlot = dashboard?.todaySlots.find((slot) => slot.manualStatus !== 'cancelled');
@@ -1115,6 +1158,25 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
     }
   }
 
+  async function handleSlotReceptionToggle(slot: CalendarSlot): Promise<void> {
+    const pause = slot.manualStatus === 'normal';
+    setBusySlotId(slot.id);
+    try {
+      await repository.setSlotPaused(slot.id, pause);
+      onChanged();
+      await load();
+      setStatusMessage(
+        pause
+          ? `${formatDay(slot.startAt)} ${formatTime(slot.startAt)} ${slot.experience.name}を受付停止にしました。予約済みのお客様は保持されています。`
+          : `${formatDay(slot.startAt)} ${formatTime(slot.startAt)} ${slot.experience.name}の受付を再開しました。空席分の予約を受け付けます。`,
+      );
+    } catch (cause) {
+      window.alert(cause instanceof Error ? cause.message : '開催枠の受付状態を変更できませんでした。');
+    } finally {
+      setBusySlotId('');
+    }
+  }
+
   if (!dashboard) return <div className="grid min-h-dvh place-items-center bg-admin-bg-primary font-admin-sans font-bold text-admin-green">管理画面を準備しています…</div>;
 
   return (
@@ -1126,26 +1188,34 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
         メインコンテンツへ移動
       </a>
 
-      <header className="fixed inset-x-0 top-0 z-50 border-b border-admin-green/20 bg-admin-bg-primary/95 backdrop-blur-md">
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-admin-green/20 bg-admin-bg-primary/95 backdrop-blur-md md:border-admin-navy md:bg-admin-navy/95">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-full bg-admin-green text-white shadow-sm">
+            <span className="grid size-10 shrink-0 place-items-center rounded-full bg-admin-green text-white shadow-sm md:bg-admin-bg-primary md:text-admin-green">
               <Leaf aria-hidden="true" className="size-5" strokeWidth={2.2} />
             </span>
             <div className="min-w-0">
-              <p className="truncate text-sm font-extrabold tracking-[0.08em] text-admin-navy sm:text-base">
+              <p className="truncate text-sm font-extrabold tracking-[0.08em] text-admin-navy sm:text-base md:text-admin-bg-primary">
                 みのり日和ファーム
               </p>
-              <p className="truncate text-[11px] font-semibold text-admin-green">運営管理</p>
+              <p className="truncate text-[11px] font-semibold text-admin-green md:text-admin-bg-secondary">運営管理</p>
             </div>
           </div>
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <Link
+              to="/"
+              className="hidden min-h-11 min-w-11 items-center justify-center gap-2 rounded-full border border-admin-bg-primary/35 px-4 text-xs font-extrabold !text-admin-bg-primary transition-colors hover:border-admin-green hover:bg-admin-green hover:!text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-bg-primary/60 md:inline-flex"
+              aria-label="一般予約の利用者画面へ戻る"
+            >
+              <Leaf aria-hidden="true" className="size-4" />
+              サイトを確認する
+            </Link>
             <nav aria-label="グローバルナビゲーション">
               <button
                 type="button"
                 onClick={() => setActiveTab('today')}
-                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full px-3 text-xs font-extrabold text-admin-navy transition-colors hover:bg-admin-bg-secondary focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-red/40"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full px-3 text-xs font-extrabold text-admin-navy transition-colors hover:bg-admin-bg-secondary focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-red/40 md:text-admin-bg-primary md:hover:bg-admin-green"
               >
                 <LayoutDashboard aria-hidden="true" className="size-4" />
                 <span className="hidden md:inline">本日の運営</span>
@@ -1154,20 +1224,20 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
             <button
               type="button"
               onClick={handleDemoReset}
-              className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full px-3 text-xs font-extrabold text-admin-red transition-colors hover:bg-admin-red/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-red/40"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full px-3 text-xs font-extrabold text-admin-red transition-colors hover:bg-admin-red/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-admin-red/40 md:text-admin-bg-primary md:hover:bg-admin-red"
               aria-label="デモデータを初期状態へ戻す"
               title="次の商談を同じ条件で開始できます"
             >
               <RotateCcw aria-hidden="true" className="size-4" />
               <span className="hidden lg:inline">デモを初期化</span>
             </button>
-            <span className="hidden items-center gap-2 rounded-full bg-admin-bg-secondary px-3 py-2 text-xs font-bold text-admin-green sm:inline-flex">
+            <span className="hidden items-center gap-2 rounded-full bg-admin-bg-secondary px-3 py-2 text-xs font-bold text-admin-green sm:inline-flex md:bg-admin-bg-primary/12 md:text-admin-bg-primary">
               <span className="size-2 rounded-full bg-admin-green" aria-hidden="true" />
               デモ環境
             </span>
             <div className="flex items-center gap-2" aria-label="ログイン中の利用者">
-              <CircleUserRound aria-hidden="true" className="size-7 text-admin-navy/70" />
-              <span className="hidden text-xs font-bold sm:inline">農園スタッフ</span>
+              <CircleUserRound aria-hidden="true" className="size-7 text-admin-navy/70 md:text-admin-bg-primary" />
+              <span className="hidden text-xs font-bold sm:inline md:text-admin-bg-primary">農園スタッフ</span>
             </div>
           </div>
         </div>
@@ -1217,6 +1287,8 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
               onBulkCancellation={() => cancellationSlot ? setBulkCancellationOpen(true) : setStatusMessage('中止できる開催枠はありません。')}
               onCancelBooking={handleBookingCancellation}
               onCheckInBooking={handleBookingCheckIn}
+              onToggleSlot={handleSlotReceptionToggle}
+              busySlotId={busySlotId}
             />
           ) : activeTab === 'slots' ? (
             <SlotCalendar
@@ -1225,6 +1297,8 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
               selectedDate={selectedDate}
               onMonthChange={setCurrentMonth}
               onDateSelect={setSelectedDate}
+              onToggleSlot={handleSlotReceptionToggle}
+              busySlotId={busySlotId}
             />
           ) : activeTab === 'guests' ? (
             <GuestList bookings={bookings} slots={slots} />
@@ -1254,35 +1328,46 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
 
       <footer className="fixed inset-x-0 bottom-0 z-50 border-t border-admin-green/20 bg-admin-bg-primary/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-10px_35px_rgba(30,50,80,0.08)] backdrop-blur-md">
         <nav aria-label="管理画面の主要メニュー" className="mx-auto max-w-6xl overflow-x-auto overscroll-x-contain px-2 sm:px-4">
-          <div role="tablist" aria-label="管理機能" className="flex min-w-max items-stretch sm:min-w-0">
-            {ADMIN_TABS.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = tab.id === activeTab;
+          <div className="flex min-w-max items-stretch md:min-w-0">
+            <Link
+              to="/"
+              className="group relative flex min-h-20 min-w-[7.25rem] flex-col items-center justify-center gap-1.5 px-3 text-xs font-extrabold text-admin-navy/70 transition-colors hover:bg-admin-bg-secondary/65 hover:text-admin-green focus-visible:z-10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-admin-red/45 md:hidden"
+              aria-label="一般予約の利用者画面へ戻る"
+            >
+              <span aria-hidden="true" className="absolute inset-x-5 top-0 h-1 rounded-b-full bg-transparent transition-colors group-hover:bg-admin-green/20" />
+              <Leaf aria-hidden="true" className="size-5" strokeWidth={1.9} />
+              <span className="whitespace-nowrap">利用者画面</span>
+            </Link>
+            <div role="tablist" aria-label="管理機能" className="flex min-w-max flex-1 items-stretch md:min-w-0">
+              {ADMIN_TABS.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = tab.id === activeTab;
 
-              return (
-                <button
-                  key={tab.id}
-                  id={`admin-tab-${tab.id}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  aria-controls="admin-active-panel"
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`group relative flex min-h-20 min-w-[7.25rem] flex-1 flex-col items-center justify-center gap-1.5 px-3 text-xs font-extrabold transition-colors focus-visible:z-10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-admin-red/45 sm:min-w-0 ${
-                    isActive
-                      ? 'text-admin-green'
-                      : 'text-admin-navy/60 hover:bg-admin-bg-secondary/65 hover:text-admin-navy'
-                  }`}
-                >
-                  <span
-                    aria-hidden="true"
-                    className={`absolute inset-x-5 top-0 h-1 rounded-b-full transition-colors ${isActive ? 'bg-admin-green' : 'bg-transparent group-hover:bg-admin-green/20'}`}
-                  />
-                  <Icon aria-hidden="true" className="size-5" strokeWidth={isActive ? 2.4 : 1.9} />
-                  <span className="whitespace-nowrap">{tab.label}</span>
-                </button>
-              );
-            })}
+                return (
+                  <button
+                    key={tab.id}
+                    id={`admin-tab-${tab.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    aria-controls="admin-active-panel"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`group relative flex min-h-20 min-w-[7.25rem] flex-1 flex-col items-center justify-center gap-1.5 px-3 text-xs font-extrabold transition-colors focus-visible:z-10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-admin-red/45 md:min-w-0 ${
+                      isActive
+                        ? 'text-admin-green'
+                        : 'text-admin-navy/60 hover:bg-admin-bg-secondary/65 hover:text-admin-navy'
+                    }`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`absolute inset-x-5 top-0 h-1 rounded-b-full transition-colors ${isActive ? 'bg-admin-green' : 'bg-transparent group-hover:bg-admin-green/20'}`}
+                    />
+                    <Icon aria-hidden="true" className="size-5" strokeWidth={isActive ? 2.4 : 1.9} />
+                    <span className="whitespace-nowrap">{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </nav>
       </footer>

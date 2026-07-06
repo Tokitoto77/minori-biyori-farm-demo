@@ -320,6 +320,36 @@ export class DemoRepository implements PublicRepository, BookingRepository, Admi
     return slot;
   }
 
+  async setSlotPaused(id: string, paused: boolean): Promise<Slot> {
+    const state = readDemoState();
+    const slot = state.slots.find((item) => item.id === id);
+    if (!slot) throw new Error('開催枠が見つかりません。');
+    const experience = state.experiences.find((item) => item.id === slot.experienceId);
+    if (!experience) throw new Error('体験情報が見つかりません。');
+    if (slot.manualStatus === 'cancelled') throw new Error('開催中止済みの枠は受付状態を変更できません。');
+    if (slot.manualStatus === 'adjusting') throw new Error('生育調整中の枠は、調整状態を解除してから受付状態を変更してください。');
+
+    const nextStatus = paused ? 'paused' : 'normal';
+    if (slot.manualStatus === nextStatus) {
+      throw new Error(paused ? 'この開催枠はすでに受付停止中です。' : 'この開催枠はすでに通常受付中です。');
+    }
+
+    slot.manualStatus = nextStatus;
+    slot.statusReason = paused ? '農園の判断で受付を一時停止しています。' : undefined;
+    const dateTime = format(new Date(slot.startAt), 'M/d H:mm', { locale: ja });
+    this.addAudit(state, {
+      actor: 'demoAdmin',
+      action: paused ? 'SLOT_PAUSED' : 'SLOT_RESUMED',
+      targetType: 'slot',
+      targetId: slot.id,
+      summary: paused
+        ? `${dateTime} ${experience.name}を受付停止にしました`
+        : `${dateTime} ${experience.name}の受付を再開しました`,
+    });
+    writeDemoState(state);
+    return slot;
+  }
+
   async deleteSlot(id: string): Promise<void> {
     const state = readDemoState();
     const slotIndex = state.slots.findIndex((item) => item.id === id);

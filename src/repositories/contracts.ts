@@ -34,6 +34,7 @@ export interface AdminRepository {
   createSlot(input: SlotCreateInput): Promise<Slot>;
   createSlots(inputs: SlotCreateInput[]): Promise<Slot[]>;
   updateSlot(id: string, input: SlotUpdateInput): Promise<Slot>;
+  setSlotPaused(id: string, paused: boolean): Promise<Slot>;
   deleteSlot(id: string): Promise<void>;
   listBookings(slotId?: string): Promise<Booking[]>;
   listWaitlistEntries(slotId?: string): Promise<WaitlistEntry[]>;
