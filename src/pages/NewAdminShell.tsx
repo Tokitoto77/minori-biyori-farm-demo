@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -882,9 +882,16 @@ function AuditHistoryPanel({ logs }: { logs: AuditLog[] }) {
   );
 }
 
-function BookingCard({ booking, slot }: { booking: Booking; slot?: CalendarSlot }) {
+function BookingCard({ booking, slot, expanded = false }: { booking: Booking; slot?: CalendarSlot; expanded?: boolean }) {
+  const detailId = `booking-detail-${booking.id}`;
+  const cardId = `booking-card-${booking.id}`;
+  const statusLabel = booking.status === 'checkedIn' ? '受付済み' : '予約確定';
+  const sourceLabel = booking.source === 'web' ? 'Web予約' : booking.source === 'phone' ? '電話予約' : '待機繰り上げ';
   return (
-    <article className="group relative overflow-hidden rounded-2xl border border-admin-green/15 bg-white/80 p-4 shadow-[0_10px_28px_rgba(30,50,80,0.06)] transition-transform hover:-translate-y-0.5 hover:border-admin-green/35 sm:p-5">
+    <article
+      id={cardId}
+      className={`group relative scroll-mt-28 overflow-hidden rounded-2xl bg-white/80 p-4 shadow-[0_10px_28px_rgba(30,50,80,0.06)] transition-[transform,border-color,box-shadow] hover:-translate-y-0.5 sm:p-5 ${expanded ? 'border-2 border-admin-green shadow-[0_16px_38px_rgba(67,110,79,0.16)]' : 'border border-admin-green/15 hover:border-admin-green/35'}`}
+    >
       <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4">
         <div className="flex min-w-14 flex-col items-center border-r border-admin-green/15 pr-4 text-admin-green">
           <Clock3 aria-hidden="true" className="size-4" />
@@ -893,17 +900,72 @@ function BookingCard({ booking, slot }: { booking: Booking; slot?: CalendarSlot 
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h3 className="font-admin-sans text-base font-black text-admin-navy sm:text-lg">
-              <a href={`/admin?booking=${encodeURIComponent(booking.id)}`} className="inline-flex min-h-11 items-center rounded-sm after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:ring-4 focus-visible:after:ring-inset focus-visible:after:ring-admin-red/45" aria-label={`${booking.contact.name}さんの予約詳細を開く`}>
+              <Link
+                to={expanded ? '/admin' : `/admin?booking=${encodeURIComponent(booking.id)}`}
+                aria-expanded={expanded}
+                aria-controls={detailId}
+                className="inline-flex min-h-11 items-center rounded-sm after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:ring-4 focus-visible:after:ring-inset focus-visible:after:ring-admin-red/45"
+                aria-label={`${booking.contact.name}さんの予約詳細を${expanded ? '閉じる' : '開く'}`}
+              >
                 {booking.contact.name}
-              </a>
+              </Link>
             </h3>
-            <span className="rounded-full bg-admin-green/10 px-2.5 py-1 text-[11px] font-extrabold text-admin-green">確認済み</span>
+            <span className="rounded-full bg-admin-green/10 px-2.5 py-1 text-[11px] font-extrabold text-admin-green">{statusLabel}</span>
           </div>
           <p className="truncate text-xs font-bold text-admin-navy/65 sm:text-sm">{slot?.experience.name ?? '開催枠を確認してください'}</p>
           <p className="mt-1 text-[11px] font-semibold text-admin-navy/45">{booking.totalPeople}名 ・ 予約番号 {booking.code}</p>
         </div>
-        <ChevronRight aria-hidden="true" className="size-5 text-admin-green transition-transform group-hover:translate-x-0.5" />
+        <ChevronRight aria-hidden="true" className={`size-5 text-admin-green transition-transform ${expanded ? 'rotate-90' : 'group-hover:translate-x-0.5'}`} />
       </div>
+      {expanded && (
+        <div id={detailId} role="region" aria-label={`${booking.contact.name}さんの予約詳細`} className="relative z-10 mt-5 border-t border-admin-green/15 pt-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-black tracking-[0.14em] text-admin-green">BOOKING DETAIL</p>
+            <span className="rounded-full bg-admin-bg-secondary px-3 py-1.5 text-xs font-black text-admin-navy">{sourceLabel}</span>
+          </div>
+          <dl className="grid gap-x-6 gap-y-4 rounded-2xl bg-admin-bg-primary p-4 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs font-bold text-admin-navy/55">代表者氏名</dt>
+              <dd className="mt-1 font-black text-admin-navy">{booking.contact.name}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-bold text-admin-navy/55">予約番号</dt>
+              <dd className="mt-1 font-black text-admin-navy">{booking.code}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-bold text-admin-navy/55">電話番号</dt>
+              <dd className="mt-1 font-black text-admin-navy">{booking.contact.phone || '未登録'}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-bold text-admin-navy/55">メールアドレス</dt>
+              <dd className="mt-1 break-all font-black text-admin-navy">{booking.contact.email || '未登録'}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-bold text-admin-navy/55">人数内訳</dt>
+              <dd className="mt-1 font-black text-admin-navy">大人 {booking.party.adults}名・子ども {booking.party.children}名・幼児 {booking.party.infants}名</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-bold text-admin-navy/55">合計金額</dt>
+              <dd className="mt-1 font-black text-admin-navy">{formatYen(booking.totalPrice)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-bold text-admin-navy/55">開催日時</dt>
+              <dd className="mt-1 font-black text-admin-navy">{slot ? `${formatDay(slot.startAt)} ${formatTime(slot.startAt)}〜${formatTime(slot.endAt)}` : '開催枠を確認してください'}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-bold text-admin-navy/55">登録日時</dt>
+              <dd className="mt-1 font-black text-admin-navy">{formatJstDateTime(booking.createdAt)} JST</dd>
+            </div>
+          </dl>
+          {booking.contact.note && (
+            <div className="mt-4 rounded-xl border border-admin-green/15 bg-white px-4 py-3">
+              <p className="text-xs font-bold text-admin-navy/55">連絡メモ</p>
+              <p className="mt-1 text-sm font-bold leading-6 text-admin-navy">{booking.contact.note}</p>
+            </div>
+          )}
+          <p className="mt-4 text-right text-xs font-bold text-admin-green">カードをもう一度押すと詳細を閉じます</p>
+        </div>
+      )}
     </article>
   );
 }
@@ -912,18 +974,21 @@ function GuestList({
   bookings,
   slots,
   waitlist,
+  expandedBookingId,
   busyWaitlistId,
   onPromoteWaitlist,
 }: {
   bookings: Booking[];
   slots: CalendarSlot[];
   waitlist: WaitlistEntry[];
+  expandedBookingId: string | null;
   busyWaitlistId: string;
   onPromoteWaitlist: (entry: WaitlistEntry) => Promise<void>;
 }) {
   const slotMap = new Map(slots.map((slot) => [slot.id, slot]));
   const activeBookings = bookings.filter((booking) => booking.status === 'confirmed' || booking.status === 'checkedIn');
   const waitingEntries = waitlist.filter((entry) => entry.status === 'waiting');
+  const requestedBookingMissing = Boolean(expandedBookingId) && !activeBookings.some((booking) => booking.id === expandedBookingId);
   return (
     <div className="space-y-10">
       <section aria-labelledby="guest-list-title">
@@ -932,9 +997,12 @@ function GuestList({
           <p className="rounded-full bg-admin-bg-secondary px-3 py-2 text-xs font-extrabold text-admin-green">{activeBookings.length}件</p>
         </div>
         {activeBookings.length > 0 ? (
-          <div className="grid gap-3 lg:grid-cols-2">{activeBookings.map((booking) => <BookingCard key={booking.id} booking={booking} slot={slotMap.get(booking.slotId)} />)}</div>
+          <div className="grid items-start gap-3 lg:grid-cols-2">{activeBookings.map((booking) => <BookingCard key={booking.id} booking={booking} slot={slotMap.get(booking.slotId)} expanded={booking.id === expandedBookingId} />)}</div>
         ) : (
           <p className="rounded-2xl border border-admin-green/15 bg-white/75 px-5 py-8 text-center text-sm font-bold text-admin-navy/60">現在、確定中の予約はありません。</p>
+        )}
+        {requestedBookingMissing && (
+          <p role="alert" className="mt-4 rounded-xl border border-admin-red/30 bg-admin-red/8 px-4 py-3 text-sm font-bold text-admin-red">指定された予約は見つからないか、すでに有効な予約ではありません。</p>
         )}
       </section>
 
@@ -1560,7 +1628,10 @@ function TodayDashboard({ dashboard, bookings, slots, onAddBooking, onBulkCancel
 }
 
 export default function NewAdminShell({ repository, revision, onChanged }: { repository: AdminRepository; revision: number; onChanged: () => void }) {
+  const [searchParams] = useSearchParams();
+  const bookingIdFromUrl = searchParams.get('booking')?.trim() || null;
   const [activeTab, setActiveTab] = useState<AdminTabId>('today');
+  const [expandedBookingId, setExpandedBookingId] = useState<string | null>(bookingIdFromUrl);
   const [currentMonth, setCurrentMonth] = useState(() => new Date(2026, 6, 1));
   const [selectedDate, setSelectedDate] = useState(() => new Date(2026, 6, 16));
   const [phoneBookingOpen, setPhoneBookingOpen] = useState(false);
@@ -1603,6 +1674,24 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
   useEffect(() => {
     void load();
   }, [repository, revision]);
+
+  useEffect(() => {
+    if (bookingIdFromUrl) {
+      setActiveTab('guests');
+      setExpandedBookingId(bookingIdFromUrl);
+      return;
+    }
+    setExpandedBookingId(null);
+  }, [bookingIdFromUrl]);
+
+  useEffect(() => {
+    if (activeTab !== 'guests' || !expandedBookingId) return;
+    if (!bookings.some((booking) => booking.id === expandedBookingId)) return;
+    const animationFrame = window.requestAnimationFrame(() => {
+      document.getElementById(`booking-card-${expandedBookingId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [activeTab, bookings, expandedBookingId]);
 
   function handleBookingSaved(booking: Booking, notificationQueued: boolean) {
     setStatusMessage(
@@ -1840,6 +1929,7 @@ export default function NewAdminShell({ repository, revision, onChanged }: { rep
               bookings={bookings}
               slots={slots}
               waitlist={waitlist}
+              expandedBookingId={expandedBookingId}
               busyWaitlistId={busyWaitlistId}
               onPromoteWaitlist={handlePromoteWaitlist}
             />
